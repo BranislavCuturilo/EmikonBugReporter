@@ -6,6 +6,7 @@ import {
 import { Helpdesk } from "../lib/helpdesk.js";
 import { Gemini } from "../lib/gemini.js";
 import { checkForUpdate, currentVersion } from "../lib/updater.js";
+import { HELPDESK_TOKEN_PATH, GEMINI_KEY_URL } from "../lib/constants.js";
 import { downloadBackup, importSettings } from "../lib/backup.js";
 
 // Where install.ps1 puts the extension. Shown as the update command because an
@@ -405,6 +406,37 @@ $("testGemini").addEventListener("click", async () => {
 });
 
 
+
+/** The "where do I get this" links.
+ *
+ * The helpdesk one is built from whatever URL is currently TYPED, not from what
+ * was last saved -- someone filling the form for the first time has not saved
+ * anything yet, and a link that only works after a save is a link that is
+ * broken exactly when it is needed. With no URL yet it is disabled rather than
+ * pointing somewhere wrong.
+ */
+function renderKeyLinks() {
+  $("geminiKeyLink").href = GEMINI_KEY_URL;
+
+  const link = $("helpdeskTokenLink");
+  const base = String($("helpdeskUrl").value || "").trim().replace(/\/+$/, "");
+  if (base) {
+    link.href = base + HELPDESK_TOKEN_PATH;
+    link.removeAttribute("aria-disabled");
+    link.style.pointerEvents = "";
+    link.style.opacity = "";
+    link.textContent = "Gde se uzima token →";
+  } else {
+    link.removeAttribute("href");
+    link.setAttribute("aria-disabled", "true");
+    link.style.pointerEvents = "none";
+    link.style.opacity = ".5";
+    link.textContent = "upiši URL helpdesk-a pa se ovde pojavi link";
+  }
+}
+
+$("helpdeskUrl").addEventListener("input", renderKeyLinks);
+
 // -- surface ---------------------------------------------------------------
 
 /** The opacity slider only means anything for the overlay. Leaving it enabled
@@ -567,6 +599,7 @@ async function init() {
 
   $("overlayOpacity").value = String(Math.round((s.overlayOpacity ?? 0.55) * 100));
   renderSurface();
+  renderKeyLinks();
 
   houseStyle = s.houseStyle || "";
   $("houseStyle").value = houseStyle || DEFAULT_HOUSE_STYLE;

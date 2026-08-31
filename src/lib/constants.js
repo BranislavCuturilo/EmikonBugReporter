@@ -34,6 +34,16 @@ export const API_PREFIX = "/api/v1";
 export const TICKET_WEB_PATH = "/tickets/{id}";
 export const TIMEOUT_MS = 30000;
 
+// Where a person actually gets the two keys this extension needs.
+//
+// The helpdesk one is a PATH, not a full address: it is joined onto whichever
+// helpdesk URL is configured, so pointing the extension at a different install
+// moves the link with it instead of sending the user to somebody else's site.
+// Verified 2026-08-31 against tiket.emikon.rs (302 -> login, i.e. it exists);
+// the route is accounts/urls.py -> name="api-tokens".
+export const HELPDESK_TOKEN_PATH = "/accounts/api-tokens/";
+export const GEMINI_KEY_URL = "https://aistudio.google.com/apikey";
+
 // The helpdesk's OWN values, verbatim from ticket/models.py:41 --
 // choices=(('Critical','Critical'),('Major','Major'),('Minor','Minor'),
 // ('Trivial','Trivial')), default='Minor'. Capitalised, value == label.

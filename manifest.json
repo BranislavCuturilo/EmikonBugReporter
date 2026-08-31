@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Emikon Bug Reporter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Sesijsko prikupljanje dokaza (slike, konzola, mreza, video) + AI sklapanje tiketa za tiket.emikon.rs",
   "homepage_url": "https://github.com/BranislavCuturilo/EmikonBugReporter",
   "minimum_chrome_version": "116",
