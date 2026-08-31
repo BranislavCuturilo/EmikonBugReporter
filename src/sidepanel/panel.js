@@ -187,8 +187,7 @@ async function refresh() {
   stateEl.textContent = activeId ? "snima" : "nema sesije";
 
   $("toggle").textContent = activeId ? "Završi sesiju" : "Počni sesiju";
-  $("shoot").disabled = !activeId;
-  $("record").disabled = !activeId;
+  for (const id of [...Object.keys(SHOOT_BUTTONS), "record"]) $(id).disabled = !activeId;
 
   show($("detached"), detached
     ? `Konzola i mreža se više ne hvataju (${detached.reason}). Najčešći uzrok: otvoren DevTools na toj kartici — Chrome dozvoljava samo jednog debuggera. Slike i beleške i dalje rade.`
@@ -257,15 +256,33 @@ $("toggle").addEventListener("click", async () => {
   refresh();
 });
 
-$("shoot").addEventListener("click", async () => {
-  show($("error"), "");
-  try {
-    await send({ type: "SHOOT", caption: "" });
-  } catch (e) {
-    show($("error"), String(e?.message || e));
-  }
-  refresh();
-});
+const SHOOT_BUTTONS = {
+  shootRegion: "region",
+  shootViewport: "viewport",
+  shootFull: "full",
+};
+
+for (const [id, mode] of Object.entries(SHOOT_BUTTONS)) {
+  $(id).addEventListener("click", async () => {
+    show($("error"), "");
+    const btn = $(id);
+    const label = btn.textContent;
+    btn.disabled = true;
+    if (mode === "full") btn.textContent = "slikam…";
+    try {
+      const item = await send({ type: "SHOOT", caption: "", mode });
+      // A cancelled region select returns null. That is not an error and must
+      // not be reported as one -- Escape means the user changed their mind.
+      if (item?.warning) show($("error"), item.warning, "warn");
+    } catch (e) {
+      show($("error"), String(e?.message || e));
+    } finally {
+      btn.textContent = label;
+      btn.disabled = false;
+    }
+    refresh();
+  });
+}
 
 async function toggleRecord() {
   const btn = $("record");

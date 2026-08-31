@@ -23,7 +23,7 @@
       padding: 10px 12px;
       border-top: 1px solid var(--border);
       background: var(--bg-raised);
-      display: flex; gap: 8px;
+      display: flex; flex-direction: column;
     }
 
     /* Tiles size to their own content; a placeholder tile must not stretch the
@@ -77,7 +77,8 @@
       <div id="shots" class="shots"></div>
       <div id="shotsEmpty" class="empty">
         Još nema nijedne slike.<br>
-        Klikni <b>Slikaj</b> kad si na ekranu koji pokazuje problem.
+        <b>✂ Isečak</b> — prevuci preko dela koji pokazuje problem.<br>
+        <b>▭ Ekran</b> ili <b>▤ Cela</b> kad treba širi kontekst.
       </div>
     </div>
 
@@ -102,11 +103,25 @@
   </main>
 
   <footer class="actions">
-    <button class="primary" id="toggle" type="button">Počni sesiju</button>
-    <button id="shoot" type="button" disabled>Slikaj</button>
-    <button id="record" type="button" disabled title="Snimi video — kadrovi idu na tiket kao slike">⏺ Video</button>
-    <span class="spacer"></span>
-    <button id="compose" type="button" disabled>Sklopi tiket →</button>
+    <!-- Two rows on purpose. The panel is ~400px and these six controls do not
+         fit on one line; a single nowrap row would push the last one off the
+         edge, where it is reachable only by horizontal scrolling and therefore
+         does not exist for the user. -->
+    <div class="row wrap" style="width: 100%">
+      <button id="shootRegion" type="button" class="primary sm" disabled
+              title="Prevuci pravougaonik preko dela koji treba da se vidi">✂ Isečak</button>
+      <button id="shootViewport" type="button" class="sm" disabled
+              title="Sve što je trenutno na ekranu">▭ Ekran</button>
+      <button id="shootFull" type="button" class="sm" disabled
+              title="Cela stranica, i deo koji se ne vidi bez skrolovanja">▤ Cela</button>
+      <button id="record" type="button" class="sm" disabled
+              title="Snimi video — kadrovi idu na tiket kao slike">⏺ Video</button>
+    </div>
+    <div class="row" style="width: 100%; margin-top: 8px">
+      <button id="toggle" type="button">Počni sesiju</button>
+      <span class="spacer"></span>
+      <button id="compose" type="button" class="primary" disabled>Sklopi tiket →</button>
+    </div>
   </footer>
 
   <dialog class="viewer" id="viewer"><img id="viewerImg" alt=""></dialog>

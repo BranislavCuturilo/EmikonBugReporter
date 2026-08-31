@@ -1,6 +1,7 @@
 import { DEFAULTS, loadSettings, saveSettings } from "../lib/settings.js";
 import {
-  DEFAULT_HOUSE_STYLE, SKILL_SCOPES, buildSystem, newSkill, skillsFor,
+  DEFAULT_HOUSE_STYLE, SKILL_SCOPES, buildSystem, newSkill, newGroup,
+  skillsFor, ALWAYS_GROUP,
 } from "../lib/prompts.js";
 import { Helpdesk } from "../lib/helpdesk.js";
 import { Gemini } from "../lib/gemini.js";
@@ -27,12 +28,14 @@ const FIELDS = {
   identitySelector: "value",
   repo: "value",
   autoCheckUpdates: "checked",
+  surface: "value",
 };
 
 // Held in state, not in the DOM. The skills list lives inside a section the
 // user can collapse, and reading values back out of a collapsed section at save
 // time is how typed text silently fails to be saved.
 let skills = [];
+let groups = [];
 let houseStyle = "";
 
 /** Status text on a marker element. Uses classList, never `className =` --
@@ -51,6 +54,9 @@ function readForm() {
   out.helpdeskUrl = String(out.helpdeskUrl || "").trim().replace(/\/+$/, "");
   out.houseStyle = houseStyle;
   out.skills = skills;
+  out.groups = groups;
+  // stored 0..1, shown 25..100
+  out.overlayOpacity = Number($("overlayOpacity").value) / 100;
   return out;
 }
 
@@ -70,6 +76,137 @@ function renderHouseState() {
   setStatus($("houseState"), custom ? "izmenjeno u odnosu na podrazumevano" : "podrazumevana pravila", custom ? "warn" : "muted");
   $("resetHouse").disabled = !custom;
 }
+
+
+// -- groups ----------------------------------------------------------------
+
+function groupRow(g) {
+  const row = document.createElement("div");
+  row.className = "skill";
+  row.classList.toggle("off", g.enabled === false);
+
+  const head = document.createElement("div");
+  head.className = "head";
+
+  const on = document.createElement("input");
+  on.type = "checkbox";
+  on.checked = g.enabled !== false;
+  on.title = "Uključi ovu grupu";
+  on.addEventListener("change", () => {
+    g.enabled = on.checked;
+    row.classList.toggle("off", !g.enabled);
+    renderSkills();
+  });
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.value = g.name || "";
+  name.placeholder = "Naziv grupe — npr. „Helpdesk”";
+  name.addEventListener("input", () => {
+    g.name = name.value;
+    refreshGroupSelects();
+  });
+
+  head.append(on, name);
+
+  // The everywhere-group is where ungrouped skills live. Deleting it would
+  // orphan them, so it stays -- it can only be switched off.
+  if (g.id !== ALWAYS_GROUP) {
+    const del = document.createElement("button");
+    del.className = "sm danger";
+    del.textContent = "Obriši";
+    let armed = false;
+    del.addEventListener("click", () => {
+      if (!armed) {
+        armed = true;
+        del.textContent = "Sigurno?";
+        setTimeout(() => { if (armed) { armed = false; del.textContent = "Obriši"; } }, 3000);
+        return;
+      }
+      // Its skills are not deleted with it -- they fall back to "everywhere",
+      // which is visible and reversible. Silently deleting somebody's written
+      // rules along with a grouping decision would not be.
+      skills = skills.map((x) => (x.groupId === g.id ? { ...x, groupId: ALWAYS_GROUP } : x));
+      groups = groups.filter((x) => x.id !== g.id);
+      renderGroups();
+      renderSkills();
+    });
+    head.append(del);
+  } else {
+    const badge = document.createElement("span");
+    badge.className = "chip";
+    badge.textContent = "podrazumevana";
+    head.append(badge);
+  }
+
+  row.append(head);
+
+  const pats = document.createElement("input");
+  pats.type = "text";
+  pats.style.marginTop = "8px";
+  pats.value = (g.patterns || []).join(", ");
+  pats.placeholder = "Adrese, razdvojene zarezom — npr. tiket.emikon.rs, *.emikon.rs, /admin";
+  pats.disabled = g.id === ALWAYS_GROUP;
+  if (g.id === ALWAYS_GROUP) pats.placeholder = "bez adrese — važi svuda";
+  pats.addEventListener("input", () => {
+    g.patterns = pats.value.split(",").map((x) => x.trim()).filter(Boolean);
+    renderGroupHint(row, g);
+  });
+  row.append(pats);
+
+  const hint = document.createElement("div");
+  hint.className = "hint";
+  row.append(hint);
+  renderGroupHint(row, g);
+
+  return row;
+}
+
+/** Says out loud whether this group is scoped or global. A group whose
+ *  patterns were all deleted silently becomes global, which is the opposite
+ *  of what the person who typed them intended. */
+function renderGroupHint(row, g) {
+  const hint = row.querySelector(".hint");
+  if (!hint) return;
+  const n = (g.patterns || []).length;
+  const mine = skills.filter((s) => (s.groupId || ALWAYS_GROUP) === g.id).length;
+  hint.textContent = n
+    ? `važi na ${n} ${n === 1 ? "adresi" : "adresa"} · ${mine} skill(ova)`
+    : `bez adrese — VAŽI SVUDA · ${mine} skill(ova)`;
+  hint.style.color = n ? "var(--text-dim)" : "var(--warn)";
+}
+
+function renderGroups() {
+  const wrap = $("groups");
+  wrap.replaceChildren();
+  $("groupsEmpty").classList.toggle("hidden", groups.length > 0);
+  for (const g of groups) wrap.append(groupRow(g));
+}
+
+/** Group dropdowns on the skill rows, after a group was renamed or removed. */
+function refreshGroupSelects() {
+  for (const sel of document.querySelectorAll("select.group")) {
+    const keep = sel.value;
+    fillGroupSelect(sel);
+    sel.value = keep;
+  }
+  for (const row of document.querySelectorAll("#groups > .skill")) {
+    const idx = [...row.parentNode.children].indexOf(row);
+    if (groups[idx]) renderGroupHint(row, groups[idx]);
+  }
+}
+
+function fillGroupSelect(sel) {
+  sel.replaceChildren();
+  for (const g of groups) sel.append(new Option(g.name || "bez naziva", g.id));
+  if (!groups.some((g) => g.id === ALWAYS_GROUP)) sel.append(new Option("Svuda", ALWAYS_GROUP));
+}
+
+$("addGroup").addEventListener("click", () => {
+  groups = [...groups, newGroup()];
+  renderGroups();
+  $("groups").lastElementChild?.querySelector('input[type="text"]')?.focus();
+});
 
 function skillRow(s) {
   const row = document.createElement("div");
@@ -94,6 +231,17 @@ function skillRow(s) {
   name.value = s.name || "";
   name.placeholder = "Naziv — npr. „VEZ — multi-tenant”";
   name.addEventListener("input", () => { s.name = name.value; });
+
+  const grp = document.createElement("select");
+  grp.className = "group";
+  fillGroupSelect(grp);
+  grp.value = groups.some((g) => g.id === s.groupId) ? s.groupId : ALWAYS_GROUP;
+  s.groupId = grp.value;
+  grp.title = "Grupa — odlucuje na kojim adresama ovaj skill vazi";
+  grp.addEventListener("change", () => {
+    s.groupId = grp.value;
+    renderGroups();
+  });
 
   const scope = document.createElement("select");
   scope.className = "scope";
@@ -122,7 +270,7 @@ function skillRow(s) {
     renderSkills();
   });
 
-  head.append(on, name, scope, del);
+  head.append(on, name, grp, scope, del);
   row.append(head);
 
   const text = document.createElement("textarea");
@@ -143,6 +291,10 @@ function renderSkills() {
   $("skillsEmpty").classList.toggle("hidden", skills.length > 0);
   for (const s of skills) wrap.append(skillRow(s));
   renderCount();
+  for (const row of document.querySelectorAll("#groups > .skill")) {
+    const idx = [...row.parentNode.children].indexOf(row);
+    if (groups[idx]) renderGroupHint(row, groups[idx]);
+  }
 }
 
 $("addSkill").addEventListener("click", () => {
@@ -186,25 +338,33 @@ $("previewClose").addEventListener("click", () => $("preview").close());
 
 // -- connection tests ------------------------------------------------------
 
-async function fillModules(hd, selected) {
-  const sel = $("defaultModule");
-  let modules;
-  try {
-    modules = await hd.listModules();
-  } catch {
-    return false; // the caller already reported why the connection failed
-  }
-  const names = modules
-    .map((m) => (typeof m === "string" ? m : m?.name || m?.module || m?.code || ""))
-    .filter(Boolean);
+const nameOf = (x) => (typeof x === "string" ? x : x?.name || x?.module || x?.code || "");
 
+/** Fill one picker, keeping a previously saved value even when the helpdesk no
+ *  longer lists it -- otherwise saving the form would silently clear a setting
+ *  the user never touched. */
+function fillPicker(sel, names, selected) {
   sel.replaceChildren();
   sel.append(new Option("— bez podrazumevanog —", ""));
   for (const n of names) sel.append(new Option(n, n));
-  // Keep a previously saved value even if the helpdesk no longer lists it,
-  // otherwise saving the form would silently clear the setting.
-  if (selected && !names.includes(selected)) sel.append(new Option(`${selected} (nije u listi)`, selected));
+  if (selected && !names.includes(selected)) {
+    sel.append(new Option(`${selected} (nije u listi)`, selected));
+  }
   sel.value = selected || "";
+}
+
+/** Modules and categories together: one connection test proves both, and two
+ *  sequential round trips are a second of dead time for no reason. */
+async function fillReference(hd, { module = "", category = "" } = {}) {
+  let mods;
+  let cats;
+  try {
+    [mods, cats] = await Promise.all([hd.listModules(), hd.listCategories()]);
+  } catch {
+    return false; // the caller already reported why the connection failed
+  }
+  fillPicker($("defaultModule"), mods.map(nameOf).filter(Boolean), module);
+  fillPicker($("defaultCategory"), cats.map(nameOf).filter(Boolean), category);
   return true;
 }
 
@@ -215,9 +375,11 @@ $("testHelpdesk").addEventListener("click", async () => {
   setStatus(el, "proveravam…");
   const hd = new Helpdesk({ url: f.helpdeskUrl, token: f.helpdeskToken });
   try {
-    const ok = await fillModules(hd, f.defaultModule);
-    if (!ok) throw new Error("lista modula nije stigla");
-    setStatus(el, `veza radi — ${$("defaultModule").options.length - 1} modula učitano`, "ok");
+    const ok = await fillReference(hd, { module: f.defaultModule, category: f.defaultCategory });
+    if (!ok) throw new Error("liste modula i kategorija nisu stigle");
+    setStatus(el,
+      `veza radi — ${$("defaultModule").options.length - 1} modula, ` +
+      `${$("defaultCategory").options.length - 1} kategorija`, "ok");
   } catch (e) {
     setStatus(el, String(e?.message || e), "err");
   }
@@ -241,6 +403,24 @@ $("testGemini").addEventListener("click", async () => {
     setStatus(el, String(e?.message || e), "err");
   }
 });
+
+
+// -- surface ---------------------------------------------------------------
+
+/** The opacity slider only means anything for the overlay. Leaving it enabled
+ *  in the other two modes invites the user to tune a setting that does nothing,
+ *  and then to report it as broken. */
+function renderSurface() {
+  const mode = $("surface").value;
+  const isOverlay = mode === "overlay";
+  $("opacityField").classList.toggle("hidden", !isOverlay);
+  const pct = Math.round(Number($("overlayOpacity").value));
+  $("opacityHint").textContent =
+    `${pct}% dok je miš dalje — pod mišem uvek postane potpuno vidljiva.`;
+}
+
+$("surface").addEventListener("change", renderSurface);
+$("overlayOpacity").addEventListener("input", renderSurface);
 
 // -- version & update ------------------------------------------------------
 
@@ -385,20 +565,28 @@ async function init() {
   const s = await loadSettings();
   for (const [id, prop] of Object.entries(FIELDS)) $(id)[prop] = s[id] ?? DEFAULTS[id];
 
+  $("overlayOpacity").value = String(Math.round((s.overlayOpacity ?? 0.55) * 100));
+  renderSurface();
+
   houseStyle = s.houseStyle || "";
   $("houseStyle").value = houseStyle || DEFAULT_HOUSE_STYLE;
   renderHouseState();
 
+  groups = (s.groups || []).map((g) => ({ ...g, patterns: [...(g.patterns || [])] }));
   skills = (s.skills || []).map((x) => ({ ...x }));
+  renderGroups();
   renderSkills();
 
   // The saved module is not in the <select> until the list loads; hold it.
-  $("defaultModule").replaceChildren(
-    new Option(s.defaultModule || "— proveri vezu da se učita lista —", s.defaultModule || ""),
-  );
+  // Hold the saved values until the real lists arrive, so a slow network does
+  // not make the page look like the settings were lost.
+  for (const [id, val] of [["defaultModule", s.defaultModule], ["defaultCategory", s.defaultCategory]]) {
+    $(id).replaceChildren(new Option(val || "— proveri vezu da se učita lista —", val || ""));
+  }
 
   if (s.helpdeskUrl && s.helpdeskToken) {
-    fillModules(new Helpdesk({ url: s.helpdeskUrl, token: s.helpdeskToken }), s.defaultModule);
+    fillReference(new Helpdesk({ url: s.helpdeskUrl, token: s.helpdeskToken }),
+                  { module: s.defaultModule, category: s.defaultCategory });
   }
 
   $("updateCmd").textContent = `${DEFAULT_INSTALL_DIR}\\update.bat`;

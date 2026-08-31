@@ -1,7 +1,7 @@
 import { getSession, patchSession } from "../lib/session-store.js";
 import { loadSettings, missingSetup } from "../lib/settings.js";
 import { Gemini } from "../lib/gemini.js";
-import { skillsFor } from "../lib/prompts.js";
+import { skillsFor, activeGroups } from "../lib/prompts.js";
 import { PRIORITIES, PRIORITY_DEFAULT, PRIORITY_HELP, TITLE_MAX } from "../lib/constants.js";
 import { Helpdesk } from "../lib/helpdesk.js";
 import { deliverTicket, emptyJournal } from "../lib/deliver.js";
@@ -15,6 +15,7 @@ let settings = null;
 let drafts = [];          // editable state; never read back out of the DOM
 let rationale = "";
 let modules = [];
+let categories = [];
 const objectUrls = new Set();
 
 const urlFor = (blob) => {
@@ -167,6 +168,7 @@ async function runInterview() {
       model: settings.geminiModel,
       houseStyle: settings.houseStyle,
       skills: settings.skills,
+      groups: settings.groups,
     });
     renderActiveSkills();
     const r = await g.interview(session, session.chat || []);
@@ -287,11 +289,19 @@ function draftCard(d, i) {
   d.module = mod.value;
   mod.addEventListener("change", () => { d.module = mod.value; });
 
-  const cat = document.createElement("input");
-  cat.type = "text";
-  cat.value = d.category || settings.defaultCategory || "";
+  // A select, not free text: the helpdesk resolves a category by name and
+  // refuses one it does not know, so a typed "Greska u radu" that does not
+  // exist would be a 400 after the whole ticket was written.
+  const cat = document.createElement("select");
+  cat.append(new Option("— bez kategorije —", ""));
+  for (const c of categories) cat.append(new Option(c, c));
+  const wantedCat = d.category || settings.defaultCategory || "";
+  if (wantedCat && !categories.includes(wantedCat)) {
+    cat.append(new Option(`${wantedCat} (nije u listi)`, wantedCat));
+  }
+  cat.value = wantedCat;
   d.category = cat.value;
-  cat.addEventListener("input", () => { d.category = cat.value; });
+  cat.addEventListener("change", () => { d.category = cat.value; });
 
   const pri = document.createElement("select");
   for (const p of PRIORITIES) pri.append(new Option(`${p} — ${PRIORITY_HELP[p]}`, p));
@@ -376,9 +386,10 @@ async function runCompose() {
       model: settings.geminiModel,
       houseStyle: settings.houseStyle,
       skills: settings.skills,
+      groups: settings.groups,
     });
     renderActiveSkills();
-    const r = await g.compose(session, session.chat || [], modules);
+    const r = await g.compose(session, session.chat || [], modules, categories);
     drafts = (r.tickets || []).map((t) => ({ ...t }));
     rationale = r.rationale || "";
     await patchSession(sessionId, { draft: { tickets: drafts, rationale }, status: "composing" });
@@ -470,12 +481,25 @@ async function sendDraft(i, btn) {
 /** Names the rules that will shape the NEXT compose, so a forgotten switch is
  *  visible before the ticket is written rather than after it is read. */
 function renderActiveSkills() {
-  const active = skillsFor(settings.skills, "compose");
+  // Scoped to the addresses THIS session actually visited, so the pill says
+  // what will really be sent -- not what is switched on in Options.
+  const urls = sessionUrls();
+  const active = skillsFor(settings.skills, "compose", { groups: settings.groups, urls });
+  const groups = activeGroups(settings.groups, urls);
   const pill = $("activeSkills");
   pill.textContent = active.length ? `${active.length} skill` : "bez skillova";
   pill.title = active.length
-    ? `Uključeno za sklapanje: ${active.map((s) => s.name || "bez naziva").join(", ")}`
-    : "Nijedan skill nije uključen za sklapanje — važe samo osnovna pravila.";
+    ? `Grupe u igri: ${groups.map((g) => g.name || "bez naziva").join(", ") || "—"}
+` +
+      `Uključeno za sklapanje: ${active.map((s) => s.name || "bez naziva").join(", ")}`
+    : "Nijedan skill ne važi za ove adrese — idu samo osnovna pravila.";
+}
+
+/** Every address the session touched. Same rule as the Gemini layer uses. */
+function sessionUrls() {
+  const pages = (session?.pages || []).map((p) => p?.url).filter(Boolean);
+  const shots = (session?.evidence || []).map((e) => e?.url).filter(Boolean);
+  return [...new Set([...pages, ...shots])];
 }
 
 $("interview").addEventListener("click", runInterview);
@@ -539,10 +563,15 @@ async function init() {
   if (settings.helpdeskUrl && settings.helpdeskToken) {
     try {
       const hd = new Helpdesk({ url: settings.helpdeskUrl, token: settings.helpdeskToken });
-      const raw = await hd.listModules();
-      modules = raw.map((m) => (typeof m === "string" ? m : m?.name || m?.module || m?.code || "")).filter(Boolean);
+      const nameOf = (x) => (typeof x === "string" ? x : x?.name || x?.module || x?.code || "");
+      // Both lists in parallel: two round trips one after the other is a second
+      // of dead time on a screen the user is already waiting on.
+      const [mods, cats] = await Promise.all([hd.listModules(), hd.listCategories()]);
+      modules = mods.map(nameOf).filter(Boolean);
+      categories = cats.map(nameOf).filter(Boolean);
     } catch {
-      /* the draft still renders; the module select just falls back to free text */
+      /* the draft still renders; the pickers just come up empty and the
+         values the model chose stay as typed-in fallbacks */
     }
   }
   renderDrafts();

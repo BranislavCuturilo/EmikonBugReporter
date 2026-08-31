@@ -12,6 +12,8 @@ import {
   emptySession, putSession, patchSession, appendConsole, appendNetwork,
   appendPage, addEvidence,
 } from "../lib/session-store.js";
+import { captureViewport, captureRegion, captureFullPage } from "./capture.js";
+import { loadSettings, saveSettings } from "../lib/settings.js";
 
 const CDP_VERSION = "1.3";
 
@@ -217,6 +219,11 @@ async function startSession(tabId) {
   await setActive({ sessionId: session.id, tabId });
   await chrome.storage.session.remove("detached");
 
+  const settings = await loadSettings();
+  await chrome.storage.session.remove("surfaceNote");
+  if (settings.surface === "overlay") await mountOverlay(tabId);
+  else if (settings.surface === "popup") await openPanelWindow();
+
   try {
     await attach(tabId);
   } catch (e) {
@@ -233,6 +240,7 @@ async function stopSession() {
   const active = await getActive();
   if (!active) return null;
   await flush();
+  await unmountOverlay(active.tabId);
   await detach(active.tabId);
   await clearActive();
   inflight.clear();
@@ -241,22 +249,110 @@ async function stopSession() {
 
 // -- screenshots -----------------------------------------------------------
 
-const dataUrlToBlob = (dataUrl) => fetch(dataUrl).then((r) => r.blob());
+const SHOT_LABEL = {
+  viewport: "ekran",
+  region: "isecak",
+  full: "cela-stranica",
+};
 
-async function shoot(caption = "") {
+/**
+ * One picture into the session. `mode` is viewport | region | full.
+ *
+ * A cancelled region select returns null and adds NOTHING -- pressing Escape
+ * must not leave an empty row in the evidence list.
+ */
+async function shoot({ caption = "", mode = "viewport" } = {}) {
   const active = await getActive();
   if (!active) throw new Error("nema aktivne sesije");
   const tab = await chrome.tabs.get(active.tabId);
-  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
-  const blob = await dataUrlToBlob(dataUrl);
+
+  let blob;
+  let warning = "";
+
+  if (mode === "region") {
+    blob = await captureRegion(active.tabId);
+    if (!blob) return null;                       // Escape, or a click with no drag
+  } else if (mode === "full") {
+    const r = await captureFullPage(active.tabId);
+    blob = r.blob;
+    if (r.method === "stitch") {
+      // Worth saying out loud: a stitched picture repeats every fixed header,
+      // and a user who does not know that reads it as the page being broken.
+      warning = "slika je spojena iz vise delova (fiksirana zaglavlja se ponavljaju)";
+    }
+  } else {
+    blob = await captureViewport(active.tabId);
+  }
+
   const n = Date.now().toString(36).slice(-4);
-  return addEvidence(active.sessionId, {
+  const item = await addEvidence(active.sessionId, {
     blob,
-    name: `snimak-${n}.png`,
+    name: `${SHOT_LABEL[mode] || "snimak"}-${n}.png`,
     caption,
     url: tab.url || "",
-    kind: "shot",
+    kind: mode === "full" ? "fullpage" : "shot",
   });
+  return { ...item, warning };
+}
+
+
+// -- surfaces --------------------------------------------------------------
+// The side panel is the only one Chrome gives for free, and it is also the only
+// one that resizes the page. So the other two exist: an overlay drawn inside
+// the page, and a separate popup window. Both leave the viewport alone.
+
+const OVERLAY_FILE = "src/content/overlay.js";
+const PANEL_URL = "src/sidepanel/panel.html";
+
+async function mountOverlay(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: [OVERLAY_FILE] });
+    return true;
+  } catch (e) {
+    // chrome:// pages, the Web Store and PDF viewers refuse injection. That is
+    // not a failure of the session -- capture still works from the panel.
+    await chrome.storage.session.set({
+      surfaceNote: `Traka se ne moze prikazati na ovoj stranici (${e?.message || e}). Koristi panel.`,
+    });
+    return false;
+  }
+}
+
+const unmountOverlay = (tabId) =>
+  chrome.tabs.sendMessage(tabId, { type: "OVERLAY_REMOVE" }).catch(() => {});
+
+/** Open the full panel as a separate window -- the popup surface, and also what
+ *  the overlay's "Panel" button asks for. */
+async function openPanelWindow() {
+  const existing = await chrome.storage.session.get("panelWindowId");
+  if (existing.panelWindowId) {
+    try {
+      await chrome.windows.update(existing.panelWindowId, { focused: true });
+      return existing.panelWindowId;
+    } catch {
+      /* the user closed it; fall through and make a new one */
+    }
+  }
+  const win = await chrome.windows.create({
+    url: chrome.runtime.getURL(PANEL_URL),
+    type: "popup",
+    width: 420,
+    height: 760,
+  });
+  await chrome.storage.session.set({ panelWindowId: win.id });
+  return win.id;
+}
+
+/** Tell the overlay how many pieces of evidence the session holds, so the count
+ *  on its header is not stale after a capture taken from somewhere else. */
+async function pushOverlayCount() {
+  const active = await getActive();
+  if (!active) return;
+  const { getSession } = await import("../lib/session-store.js");
+  const s = await getSession(active.sessionId);
+  chrome.tabs
+    .sendMessage(active.tabId, { type: "OVERLAY_COUNT", count: (s?.evidence || []).length })
+    .catch(() => {});
 }
 
 // -- message router --------------------------------------------------------
@@ -272,8 +368,32 @@ const HANDLERS = {
     await flush();
     return stopSession();
   },
-  SHOOT: ({ caption }) => shoot(caption),
+  SHOOT: async ({ caption, mode }) => {
+    const item = await shoot({ caption, mode });
+    pushOverlayCount();
+    return item;
+  },
   FLUSH: () => flush(),
+
+  OPEN_SURFACE: () => openPanelWindow(),
+
+  OPEN_REVIEW: async () => {
+    const active = await getActive();
+    if (!active) throw new Error("nema aktivne sesije");
+    await chrome.tabs.create({
+      url: chrome.runtime.getURL(`src/review/review.html?session=${active.sessionId}`),
+    });
+    return active.sessionId;
+  },
+
+  SET_NOTE: async ({ text }) => {
+    const active = await getActive();
+    if (!active) return null;
+    await patchSession(active.sessionId, { userNote: String(text || "") });
+    return true;
+  },
+
+  SET_OVERLAY_OPACITY: ({ opacity }) => saveSettings({ overlayOpacity: Number(opacity) || 0.55 }),
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

@@ -6,31 +6,99 @@ razgovor sklopi tiket ili predloži razlaganje na više njih.
 
 ## Instalacija
 
-1. `chrome://extensions` → uključi **Developer mode**
-2. **Load unpacked** → izaberi ovaj folder
-3. Klikni ikonicu ekstenzije → ⚙ → unesi:
-   - **URL helpdesk-a** — `https://tiket.emikon.rs`
-   - **API token** — inženjerski token (`ehd_…`)
-   - **Gemini API ključ** — sa [aistudio.google.com](https://aistudio.google.com/apikey)
-4. Klikni **Proveri vezu** na oba. Helpdesk mora da vrati listu modula.
+**Preuzmi `install.bat` i dvoklikni ga.** Skripta sama:
 
-Ništa ne napušta mašinu osim ka helpdesk-u i Gemini-ju. Ključevi stoje u
-`chrome.storage.local` — **ne** u `chrome.storage.sync`, jer bi to poslalo token
-na Google-ove servere.
+1. instalira Git ako ga nema (winget, pa zvanični instalater kao rezerva)
+2. preuzme ekstenziju u `%LOCALAPPDATA%\EmikonBugReporter`
+3. nađe Chrome i stavi putanju u clipboard
+4. otvori `chrome://extensions`
+
+Ne traži administratorska prava.
+
+### Jedan korak koji mora čovek
+
+Chrome **namerno** ne dozvoljava nijednom programu da sam ubaci raspakovanu
+ekstenziju. Nema API, nema komandnu liniju, nema registry trik — bez enterprise
+politike i potpisanog CRX-a to se ne može. Zato ostaje:
+
+> Developer mode → **Load unpacked** → nalepi putanju (već je u clipboard-u)
+
+Radi se **samo prvi put**. Kasnija ažuriranja ne traže ništa.
+
+### Podešavanje
+
+Ikonica ekstenzije → ⚙ → helpdesk URL, `ehd_` token, Gemini ključ.
+Klikni **Proveri vezu** na oba.
+
+Ključevi stoje u `chrome.storage.local` — **ne** u `chrome.storage.sync`, jer bi
+to poslalo token na Google-ove servere.
+
+## Ažuriranje
+
+`update.bat` u folderu ekstenzije. Povuče novu verziju i kaže ti da klikneš
+osveži na `chrome://extensions`.
+
+**Podešavanja se ne diraju.** Token, skillovi i pravila žive u Chrome-ovom
+skladištu vezanom za **ID ekstenzije**, a ne u fajlovima — `git pull` ih ne može
+ni dotaći. ID je zakucan preko `key` polja u manifestu, pa ostaje isti čak i ako
+premestiš folder.
+
+Ekstenzija sama proverava ima li novije verzije jednom dnevno (⚙ → Verzija).
+Ne može sama sebe da ažurira — Chrome to ne dozvoljava raspakovanoj ekstenziji.
+
+Za svaki slučaj postoji i **rezervna kopija**: ⚙ → Rezervna kopija →
+„Sačuvaj sve". Taj fajl sadrži ključeve u čitljivom obliku, pa ga čuvaj kao
+lozinku. Varijanta „samo skillovi" je bez ključeva i može da se deli.
 
 ## Kako se koristi
 
 | Korak | Gde |
 |---|---|
-| **Počni sesiju** | side panel, na kartici sa aplikacijom |
-| Lutaj, klikaj, izazovi grešku | konzola i mreža se hvataju same |
-| **Slikaj** na svakom bitnom ekranu | ✎ na sličici = strelica / okvir / zamućivanje |
-| **⏺ Video** za tok koji se teško opiše | kadrovi se vade automatski |
-| Piši slobodno u „Šta se dešava” | AI to čita kao prvu repliku razgovora |
+| **Počni sesiju** | na kartici sa aplikacijom |
+| **✂ Isečak** | prevučeš pravougaonik, kao Lightshot |
+| **▭ Ekran** | sve što je trenutno vidljivo |
+| **▤ Cela** | cela stranica, i deo ispod pregiba |
+| **⏺ Video** | za tok koji se teško opiše |
+| ✎ na sličici | strelica / okvir / zamućivanje osetljivog |
+| „Šta se dešava" | AI to čita kao prvu repliku razgovora |
 | **Sklopi tiket →** | otvara se veliki prozor |
 | **Ispitaj me** | AI pita samo ono što nedostaje |
 | **Sklopi** | predlog tiketa, ili više njih uz obrazloženje |
 | **Otvori tiket** | tiket + prilozi odlaze na helpdesk |
+
+### Gde stoje dugmad — i zašto to nije svejedno
+
+⚙ → „Gde stoje dugmad". Tri izbora:
+
+| Površina | Šta radi stranici |
+|---|---|
+| **Side panel** | **sužava viewport** — 1920 postane ~1520 i raspored se prelomi |
+| **Traka u stranici** | ništa — `position: fixed` ne menja raspored. Providna, pomera se, sama se skloni pre svakog snimanja |
+| **Zaseban prozor** | ništa — nema nikakvog dodira sa stranicom |
+
+Side panel je Chrome-ov i jedini besplatan, ali suženje viewporta znači da ne
+slikaš ono što korisnik zaista vidi. Zato postoje druge dve.
+
+Traka se pre svakog snimanja skloni i **sačeka dva frejma** da Chrome to stvarno
+iscrta — jedan frejm nije dovoljan i traka ostane na slici.
+
+### Skill grupe
+
+⚙ → Grupe. Grupa vezuje skillove za adrese:
+
+```
+Helpdesk   tiket.emikon.rs          → važi samo na helpdesk-u
+ERP        erp.emikon.rs, /finansije → važi na ERP-u ili na putanji /finansije
+Svuda      (bez adrese)              → važi uvek
+```
+
+Kad se poklopi više grupa, **sve se primenjuju**, redom kojim stoje. Odlučuje se
+po **svim** adresama koje je sesija dodirnula, ne samo po poslednjoj — sesija
+koja je počela na helpdesk-u a završila na ERP-u bila je o oboje.
+
+Podržano: `tiket.emikon.rs` (i poddomeni), `*.emikon.rs`, `host/putanja`,
+`/samo-putanja`. Prazan pattern ne hvata ništa — prazan red ne sme da tiho
+pretvori usku grupu u globalnu.
 
 ## Šta treba znati
 
@@ -119,6 +187,7 @@ sekunde.
 ```bash
 node test/chunks.test.mjs     # cepanje priloga u komentare
 node test/prompts.test.mjs    # sklapanje instrukcije iz pravila + skillova
+node test/groups.test.mjs     # poklapanje URL-ova sa skill grupama
 ```
 
 Pokrivaju dva mesta gde greška **ćuti** umesto da baci izuzetak: prilog koji se

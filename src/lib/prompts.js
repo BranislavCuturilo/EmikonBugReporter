@@ -86,6 +86,8 @@ stvarno nedostaje, napisi u toj sekciji "Nije utvrdjeno." -- ne izmisljaj.
 Odgovaras ISKLJUCIVO JSON-om po datoj semi.
 `.trim();
 
+export const ALWAYS_GROUP = "always";
+
 export const SKILL_SCOPES = {
   both: "oba koraka",
   interview: "samo ispitivanje",
@@ -98,6 +100,7 @@ export const STARTER_SKILLS = [
   {
     id: "starter-vez",
     name: "VEZ — multi-tenant",
+    groupId: ALWAYS_GROUP,
     scope: "compose",
     enabled: false,
     text:
@@ -109,6 +112,7 @@ export const STARTER_SKILLS = [
   {
     id: "starter-kratko",
     name: "Kratki tiketi",
+    groupId: ALWAYS_GROUP,
     scope: "compose",
     enabled: false,
     text:
@@ -118,6 +122,7 @@ export const STARTER_SKILLS = [
   {
     id: "starter-repro",
     name: "Insistiraj na reprodukciji",
+    groupId: ALWAYS_GROUP,
     scope: "interview",
     enabled: false,
     text:
@@ -127,19 +132,131 @@ export const STARTER_SKILLS = [
   },
 ];
 
+/** Shipped groups. "Svuda" has no pattern and therefore always applies; the
+ *  helpdesk one is an example of the shape, with a real address in it. */
+export const STARTER_GROUPS = [
+  { id: ALWAYS_GROUP, name: "Svuda", patterns: [], enabled: true },
+  { id: "g-helpdesk", name: "Helpdesk", patterns: ["tiket.emikon.rs"], enabled: true },
+];
+
 export const newSkill = () => ({
   id: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
   name: "",
   text: "",
   scope: "both",
   enabled: true,
+  groupId: ALWAYS_GROUP,
 });
 
-/** Skills that apply to one turn, in the order the user arranged them. */
-export function skillsFor(skills, role) {
-  return (skills || []).filter(
-    (s) => s.enabled && s.text?.trim() && (s.scope === "both" || s.scope === role),
-  );
+// -- groups ----------------------------------------------------------------
+//
+// A group is a named set of skills plus the addresses it applies to. Rules for
+// the helpdesk are not rules for an ERP screen, and switching them by hand on
+// every session is the kind of chore that ends with them left switched on.
+//
+// A group with NO patterns applies everywhere. That is the default group, and
+// it is also what every skill written before groups existed belongs to -- an
+// old skill must not stop working because a new field appeared.
+
+export const newGroup = () => ({
+  id: `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+  name: "",
+  patterns: [],
+  enabled: true,
+});
+
+export const DEFAULT_GROUP = {
+  id: ALWAYS_GROUP,
+  name: "Svuda",
+  patterns: [],
+  enabled: true,
+};
+
+/** host + path of a URL, lowercased. `null` for anything unparseable. */
+function partsOf(url) {
+  try {
+    const u = new URL(String(url));
+    return { host: u.hostname.toLowerCase(), path: (u.pathname || "/").toLowerCase() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Does one address match one pattern?
+ *
+ * Deliberately forgiving, because the person typing the pattern is describing a
+ * site, not writing a regex:
+ *
+ *   tiket.emikon.rs          host, and any subdomain of it
+ *   *.emikon.rs              any subdomain
+ *   tiket.emikon.rs/tickets  host plus a path prefix
+ *   /admin/                  path only, on any host
+ *
+ * An empty pattern matches nothing -- a blank line in the list must not
+ * silently turn a scoped group into a global one.
+ */
+export function matchesPattern(url, pattern) {
+  const pat = String(pattern || "").trim().toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  if (!pat) return false;
+
+  const p = partsOf(url);
+  if (!p) return false;
+
+  // path-only pattern
+  if (pat.startsWith("/")) return p.path.startsWith(pat);
+
+  const slash = pat.indexOf("/");
+  const hostPat = slash < 0 ? pat : pat.slice(0, slash);
+  const pathPat = slash < 0 ? "" : pat.slice(slash);
+
+  const hostOk = hostPat.includes("*")
+    // one wildcard segment only: "*.emikon.rs" must not match "emikon.rs.evil.com"
+    ? new RegExp(`^${hostPat.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]*")}$`).test(p.host)
+    : p.host === hostPat || p.host.endsWith(`.${hostPat}`);
+
+  if (!hostOk) return false;
+  return !pathPat || p.path.startsWith(pathPat);
+}
+
+/**
+ * The groups in force for a session, in the user's own order.
+ *
+ * `urls` is every page the session visited, not just the last one: a session
+ * that started on the helpdesk and ended on an ERP screen was about both, and
+ * dropping the earlier rules because of where the user happened to stop would
+ * be arbitrary.
+ */
+export function activeGroups(groups, urls = []) {
+  const list = (groups || []).filter((g) => g.enabled !== false);
+  const seen = (urls || []).filter(Boolean);
+  return list.filter((g) => {
+    const pats = (g.patterns || []).filter((x) => String(x || "").trim());
+    if (!pats.length) return true;                       // no pattern = everywhere
+    return seen.some((u) => pats.some((pat) => matchesPattern(u, pat)));
+  });
+}
+
+/**
+ * Skills that apply to one turn, in the order the user arranged them.
+ *
+ * Called without `groups` (the old two-argument form) every skill passes the
+ * group test, so nothing that existed before groups changes behaviour.
+ */
+export function skillsFor(skills, role, { groups = null, urls = [] } = {}) {
+  let allowed = null;
+  if (groups) {
+    allowed = new Set(activeGroups(groups, urls).map((g) => g.id));
+    allowed.add(ALWAYS_GROUP);        // the implicit home of ungrouped skills
+  }
+  return (skills || []).filter((s) => {
+    if (!s.enabled || !s.text?.trim()) return false;
+    if (s.scope !== "both" && s.scope !== role) return false;
+    if (!allowed) return true;
+    return allowed.has(s.groupId || ALWAYS_GROUP);
+  });
 }
 
 /**
@@ -149,9 +266,9 @@ export function skillsFor(skills, role) {
  * with the JSON-only instruction, so it has to be LAST -- a chatty skill
  * appended after it can talk the model out of returning JSON at all.
  */
-export function buildSystem(role, { houseStyle = "", skills = [] } = {}) {
+export function buildSystem(role, { houseStyle = "", skills = [], groups = null, urls = [] } = {}) {
   const base = (houseStyle || "").trim() || DEFAULT_HOUSE_STYLE;
-  const active = skillsFor(skills, role);
+  const active = skillsFor(skills, role, { groups, urls });
   const parts = [base];
 
   if (active.length) {

@@ -39,6 +39,16 @@ function Refresh-Path {
     $env:Path = ($machine, $user | Where-Object { $_ }) -join ";"
 }
 
+function Wait-Enter {
+    <#
+      Drzi prozor otvorenim kad korisnik dvoklikne skriptu. Kad se pokrece
+      neinteraktivno (test, CI), Read-Host cita EOF i puca - a skripta koja
+      pukne na kraju uspesnog posla prijavljuje lazan neuspeh.
+    #>
+    param([string]$Prompt = "  Enter za izlaz")
+    try { Read-Host $Prompt | Out-Null } catch { Write-Host "" }
+}
+
 function Invoke-Git {
     <#
       Git pise napomene na stderr i kad je sve u redu, a PowerShell 5.1 svaki
@@ -103,7 +113,7 @@ if (Test-Command git) {
         Write-Host ""
         Write-Host "    Instaliraj ga rucno sa https://git-scm.com/download/win" -ForegroundColor Yellow
         Write-Host "    pa pokreni ovu skriptu ponovo." -ForegroundColor Yellow
-        Read-Host "`n    Enter za izlaz"
+        Wait-Enter "`n    Enter za izlaz"
         exit 1
     }
     Write-Ok "Git instaliran"
@@ -149,7 +159,7 @@ if (Test-Path (Join-Path $Dir ".git")) {
             Write-Host ""
             Write-Host "    (tehnicki detalj: $($r.Output -split "`n" | Select-Object -Last 1))" -ForegroundColor DarkGray
         }
-        Read-Host "`n    Enter za izlaz"
+        Wait-Enter "`n    Enter za izlaz"
         exit 1
     }
     $ver = (Get-Content (Join-Path $Dir "manifest.json") -Raw | ConvertFrom-Json).version
@@ -199,8 +209,8 @@ Write-Host "  update.bat i ne traze nista od tebe." -ForegroundColor DarkGray
 Write-Host ""
 
 if ($chrome -and -not $NoLaunch) {
-    Read-Host "  Enter da otvorim chrome://extensions"
+    Wait-Enter "  Enter da otvorim chrome://extensions"
     Start-Process -FilePath $chrome -ArgumentList "chrome://extensions"
 } else {
-    Read-Host "  Enter za izlaz"
+    Wait-Enter "  Enter za izlaz"
 }

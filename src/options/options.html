@@ -148,10 +148,26 @@
       </div>
     </details>
 
-    <h3 style="margin-top: 18px">Skillovi</h3>
+    <h3 style="margin-top: 18px">Grupe</h3>
     <p class="small muted" style="margin-top: 0">
-      Dodatna pravila povrh osnovnih. Uključi ih po potrebi — po modulu, po tipu
-      posla. Svaki važi za ispitivanje, za sklapanje, ili za oba koraka.
+      Grupa vezuje skillove za adrese. Upiši <span class="mono">tiket.emikon.rs</span>
+      i njeni skillovi važe samo kad je sesija bila na toj adresi.
+      <b>Grupa bez adrese važi svuda.</b> Kad se poklopi više grupa, sve se
+      primenjuju, ovim redom.
+    </p>
+
+    <div id="groups" class="skills"></div>
+    <div id="groupsEmpty" class="empty">
+      Nema nijedne grupe — svi skillovi važe svuda.
+    </div>
+    <div class="row" style="margin-top: 10px">
+      <button id="addGroup" type="button">+ Dodaj grupu</button>
+    </div>
+
+    <h3 style="margin-top: 22px">Skillovi</h3>
+    <p class="small muted" style="margin-top: 0">
+      Dodatna pravila povrh osnovnih. Svaki pripada jednoj grupi i važi za
+      ispitivanje, za sklapanje, ili za oba koraka.
     </p>
 
     <div id="skills" class="skills"></div>
@@ -176,7 +192,9 @@
     </label>
     <label class="field">
       <span class="lbl">Kategorija</span>
-      <input type="text" id="defaultCategory" placeholder="npr. Greška u radu">
+      <select id="defaultCategory">
+        <option value="">— proveri vezu da se učita lista —</option>
+      </select>
     </label>
     <label class="field">
       <span class="lbl">Prioritet</span>
@@ -193,6 +211,29 @@
     <label class="row" style="gap: 8px">
       <input type="checkbox" id="assignToMe" style="width: auto" checked>
       <span>Dodeli tiket meni odmah po otvaranju</span>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>Gde stoje dugmad dok skupljaš dokaze</h2>
+    <label class="field">
+      <span class="lbl">Površina</span>
+      <select id="surface">
+        <option value="sidepanel">Side panel — Chrome-ov panel sa strane</option>
+        <option value="overlay">Traka u stranici — providna, pomera se, ne dira raspored</option>
+        <option value="popup">Zaseban prozor — nula dodira sa stranicom</option>
+      </select>
+      <span class="hint">
+        <b>Side panel sužava stranicu:</b> 1920 postane ~1520 i raspored se prelomi,
+        pa ne slikaš ono što korisnik zaista vidi. Druge dve to ne rade.
+        Traka se sama skloni pre svakog snimanja.
+      </span>
+    </label>
+
+    <label class="field" id="opacityField">
+      <span class="lbl">Providnost trake</span>
+      <input type="range" id="overlayOpacity" min="25" max="100" step="5">
+      <span class="hint" id="opacityHint"></span>
     </label>
   </section>
 

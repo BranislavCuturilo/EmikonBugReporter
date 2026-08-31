@@ -30,11 +30,15 @@ export class Gemini {
   /** `houseStyle` and `skills` come straight from settings, so a rule the user
    *  edits in Options takes effect on the very next turn -- there is no copy of
    *  them anywhere else. Passing neither falls back to the shipped defaults. */
-  constructor({ apiKey = "", model = "gemini-flash-latest", houseStyle = "", skills = [] } = {}) {
+  constructor({ apiKey = "", model = "gemini-flash-latest", houseStyle = "", skills = [], groups = null } = {}) {
     this.apiKey = String(apiKey || "");
     this.model = String(model || "gemini-flash-latest");
     this.houseStyle = houseStyle;
     this.skills = skills;
+    this.groups = groups;
+    // Filled per call from the session, because which groups apply depends on
+    // where the user actually went -- it is not a property of the settings.
+    this.urls = [];
   }
 
   get configured() { return Boolean(this.apiKey); }
@@ -78,13 +82,26 @@ export class Gemini {
     }
   }
 
+  /** Every address the session touched -- what decides which groups apply. */
+  static urlsOf(session) {
+    const pages = (session?.pages || []).map((p) => p?.url).filter(Boolean);
+    const shots = (session?.evidence || []).map((e) => e?.url).filter(Boolean);
+    return [...new Set([...pages, ...shots])];
+  }
+
   /** The system instruction for one turn, built from the CURRENT rules. */
   systemFor(role) {
-    return buildSystem(role, { houseStyle: this.houseStyle, skills: this.skills });
+    return buildSystem(role, {
+      houseStyle: this.houseStyle,
+      skills: this.skills,
+      groups: this.groups,
+      urls: this.urls,
+    });
   }
 
   /** One interview turn: what still has to be asked. */
   async interview(session, history = []) {
+    this.urls = Gemini.urlsOf(session);
     const contents = [
       { role: "user", parts: await evidenceParts(session) },
       ...history.map(toContent),
@@ -99,6 +116,7 @@ export class Gemini {
 
   /** Compose one ticket, or propose a decomposition into several. */
   async compose(session, history = [], modules = []) {
+    this.urls = Gemini.urlsOf(session);
     const parts = await evidenceParts(session);
     if (modules.length) {
       parts.push({ text: `\nDOSTUPNI MODULI (izaberi tacno jedan naziv po tiketu):\n${modules.join(", ")}` });
