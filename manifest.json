@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Emikon Bug Reporter",
+  "version": "0.2.0",
+  "description": "Sesijsko prikupljanje dokaza (slike, konzola, mreza, video) + AI sklapanje tiketa za tiket.emikon.rs",
+  "homepage_url": "https://github.com/BranislavCuturilo/EmikonBugReporter",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlx3eabxH1Wj/i3DXCsUv933mQTz45M04YC0+Pi+xIX6k2QQPuh/bJd//LvPgb+dOBQS4/BFLsZa+QA18aGyQiv0rRqYsR6gawdPpPnop0TgA55YlB8FT0Z0rK8zD120Tt/XPS5ghSQs5S2fHxqIXBRGF0V5PzA/5L5g4orkBLzq12UfDpCBe78r6lexA8nrpUPtUcsoHcEBTYNzHmud9Sij4m6p1TPtBMNp4dyr/tkRn69P+V0K+zIYqOtVxCBS+9X6qzMwAc53C3tEs+a2uG3u9TlUnEr31OOQ7bVp9XTyvffXINQmSAMeQPQa7zfICQB9nxODRB3SmKq1mFwR/BQIDAQAB",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "scripting",
+    "debugger",
+    "tabCapture",
+    "sidePanel",
+    "offscreen",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/panel.html"
+  },
+  "options_page": "src/options/options.html",
+  "action": {
+    "default_title": "Emikon Bug Reporter — otvori panel"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/probe.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

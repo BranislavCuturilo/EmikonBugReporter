@@ -1,0 +1,10 @@
+# Privatni kljuc za pakovanje CRX-a NIKAD ne ide u repo. Javni deo stoji u
+# manifest.json kao "key" i on je taj koji zakucava ID ekstenzije.
+*.pem
+*.crx
+
+# Radni otpad
+node_modules/
+.DS_Store
+Thumbs.db
+*.log

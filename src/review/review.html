@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8">
+  <title>Sklapanje tiketa — Emikon Bug Reporter</title>
+  <link rel="stylesheet" href="../ui/ui.css">
+  <style>
+    body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    header.bar {
+      flex: 0 0 auto;
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-raised);
+    }
+
+    .cols {
+      flex: 1 1 auto;
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.1fr) minmax(360px, 1.4fr);
+      gap: 0;
+      overflow: hidden;
+    }
+    .col { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+    .col:last-child { border-right: none; }
+    .col > h3 {
+      flex: 0 0 auto; margin: 0;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-sunk);
+    }
+    .col > .body { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+
+    /* Opaque. Drafts and screenshots scroll under these. */
+    .col > .foot {
+      flex: 0 0 auto;
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-raised);
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+
+    @media (max-width: 1100px) {
+      .cols { grid-template-columns: 1fr; overflow-y: auto; }
+      .col { overflow: visible; border-right: none; border-bottom: 1px solid var(--border); }
+      .col > .body { overflow: visible; }
+    }
+
+    .shots { align-items: start; }
+
+    .chat { display: flex; flex-direction: column; gap: 10px; }
+
+    .empty {
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius);
+      padding: 22px 16px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .draft { margin-bottom: 16px; }
+    .draft .idx {
+      display: inline-block; min-width: 22px;
+      font-weight: 700; color: var(--text-dim);
+    }
+    .draft label.field { margin-bottom: 10px; }
+    .draft textarea { min-height: 190px; font-family: var(--mono); font-size: 12px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip {
+      font-size: 11px; padding: 2px 7px; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--text-dim);
+    }
+    .chip.orphan { color: var(--warn); border-color: var(--warn); }
+
+    .steps { font-size: 12px; margin-top: 8px; }
+    .steps div { padding: 2px 0; }
+    .steps .ok { color: var(--ok); }
+    .steps .warn { color: var(--warn); }
+    .steps .err { color: var(--err); }
+
+    .facts { font-size: 12px; }
+    .facts dt { color: var(--text-dim); margin-top: 8px; }
+    .facts dd { margin: 0; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <h1 style="font-size:16px;margin:0">Sklapanje tiketa</h1>
+    <span id="sessionInfo" class="small muted"></span>
+    <span class="spacer"></span>
+    <span id="banner" class="small"></span>
+    <!-- Which rules are in force is not a settings detail here: it changes what
+         the next click writes, so it belongs on the screen that writes it. -->
+    <span id="activeSkills" class="pill" title="Skillovi uključeni za sklapanje">—</span>
+    <button class="ghost sm" id="openOptions" type="button" title="Podešavanja">⚙</button>
+  </header>
+
+  <div class="cols">
+
+    <section class="col">
+      <h3>Dokazi</h3>
+      <div class="body">
+        <div id="shots" class="shots"></div>
+        <div id="shotsEmpty" class="empty">Sesija nema nijednu sliku.</div>
+
+        <h3 style="margin-top:18px">Činjenice</h3>
+        <dl id="facts" class="facts"></dl>
+
+        <details style="margin-top:14px">
+          <summary class="small muted">Konzola i mreža</summary>
+          <div id="conLog" class="log card" style="margin-top:8px"></div>
+          <div id="netLog" class="log card" style="margin-top:8px"></div>
+        </details>
+      </div>
+    </section>
+
+    <section class="col">
+      <h3>Razgovor sa AI</h3>
+      <div class="body">
+        <div id="chat" class="chat"></div>
+        <div id="chatEmpty" class="empty">
+          Klikni <b>Ispitaj me</b> — AI čita dokaze i pita samo ono što nedostaje
+          da bi tiket bio upotrebljiv nekom ko nije bio tu.
+        </div>
+      </div>
+      <div class="foot">
+        <textarea id="answer" rows="2" placeholder="Odgovor…" style="flex:1"></textarea>
+        <button id="sendAnswer" type="button">Pošalji</button>
+        <button id="interview" class="primary" type="button">Ispitaj me</button>
+      </div>
+    </section>
+
+    <section class="col">
+      <h3>Predlog tiketa</h3>
+      <div class="body">
+        <div id="rationale" class="note warn hidden" style="margin-bottom:14px"></div>
+        <div id="drafts"></div>
+        <div id="draftsEmpty" class="empty">
+          Nema još predloga.<br>
+          Klikni <b>Sklopi</b> — AI će napisati tiket, ili predložiti razlaganje
+          na više njih ako su simptomi nezavisni.
+        </div>
+      </div>
+      <div class="foot">
+        <button id="compose" class="primary" type="button">Sklopi</button>
+        <span class="spacer"></span>
+        <button id="sendAll" type="button" disabled>Otvori sve tikete</button>
+      </div>
+    </section>
+
+  </div>
+
+  <dialog class="viewer" id="viewer"><img id="viewerImg" alt=""></dialog>
+
+  <script type="module" src="review.js"></script>
+</body>
+</html>
