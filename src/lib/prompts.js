@@ -62,6 +62,11 @@ Pravila ispitivanja:
 - Prioritet pitanja: (1) koraci reprodukcije, (2) da li je uvek ili povremeno,
   (3) ko je pogodjen -- jedan korisnik ili svi, (4) od kada.
 - Kad imas dovoljno za sve sekcije opisa, prestani da pitas i reci da je spremno.
+- Uz pitanja, u "suggestions" predlozi 0 do 2 stvari koje korisnik moze SAM
+  da proveri pre nego sto tiket ode (otvori X i probaj Y), izvedene iz bloka
+  KONTEKST EKRANA: sifarnik od kog ekran zavisi, pravo koje sesija nema,
+  flag koji je OFF. Ako blok kaze da je trazeno pod "NE DOZVOLJAVA", reci
+  to odmah u "note" -- mozda tiket nije ni potreban.
 
 Odgovaras ISKLJUCIVO JSON-om po datoj semi.
 `.trim();
@@ -82,6 +87,24 @@ tiketu je znak da si nesto propustio -- pomeni ga u "rationale".
 
 Svaki tiket mora da ima popunjene sve sekcije opisa. Ako neka informacija
 stvarno nedostaje, napisi u toj sekciji "Nije utvrdjeno." -- ne izmisljaj.
+
+STA JE OVO -- polje "kind" za svaki tiket, po ovom redu odlucivanja:
+1. Ako korisnik trazi nesto sto blok KONTEKST EKRANA navodi pod
+   "NE DOZVOLJAVA", to je "limitation": ekran to NAMERNO ne radi. Citiraj
+   razlog i oznaku u zagradi (npr. audit-2026-06-01) u opisu. Ne planiraj
+   popravku; predlozi zahtev za izmenu ako korisnik to zeli.
+2. Ako ekran trazi pravo ("trazi ...") koje prava sesije ne pokrivaju, ili
+   flag koji je OFF za tenant, to je "question": korisniku treba pravo ili
+   ukljucen modul, ne programer. Napisi tacno koje pravo ili flag.
+3. Ako je zahtev za novu mogucnost, "change_request".
+4. Inace "bug".
+Ekran oznacen "NEMA KONTEKST FAJL" nema deklaraciju -- ne zakljucuj da je
+sve dozvoljeno; navedi ga u "context_missing" i u "rationale" reci da za
+njega nisi mogao da proveris ogranicenja.
+
+STA JOS DA SE PROVERI -- "checks_suggested": 0 do 3 stavke koje bi
+programeru ustedele krug pitanja, izvedene iz konteksta (sifarnik od kog
+ekran zavisi, drugi ekran istog toka, pravo koje fali). Kratke i konkretne.
 
 Odgovaras ISKLJUCIVO JSON-om po datoj semi.
 `.trim();
@@ -289,6 +312,11 @@ export const INTERVIEW_SCHEMA = {
     ready: { type: "boolean", description: "true kad ima dovoljno za pun opis" },
     questions: { type: "array", items: { type: "string" }, description: "najvise 2" },
     note: { type: "string", description: "kratka opaska korisniku, opciono" },
+    suggestions: {
+      type: "array",
+      items: { type: "object", properties: { what: { type: "string" }, where: { type: "string" }, why: { type: "string" } }, required: ["what"] },
+      description: "najvise 2: sta korisnik sam moze da proveri",
+    },
   },
   required: ["ready", "questions"],
 };
@@ -318,10 +346,31 @@ export const COMPOSE_SCHEMA = {
           // "sledece nedelje" must never reach it -- the UI drops it.
           deadline: { type: "string", description: "rok kao YYYY-MM-DD, ili prazno" },
           evidence: { type: "array", items: { type: "string" } },
+          // What this is. The enum is what stops "maybe a bug" -- a
+          // limitation is not a bug and is shown differently in the UI and
+          // learned from differently in the brain.
+          kind: { type: "string", enum: ["bug", "limitation", "question", "change_request"] },
+          // Screens (url_name) whose declared context this verdict rests on.
+          depends_on_context: { type: "array", items: { type: "string" } },
         },
-        required: ["ticket_title", "ticket_description", "priority", "evidence"],
+        required: ["ticket_title", "ticket_description", "priority", "evidence", "kind"],
       },
     },
+    checks_suggested: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          what: { type: "string" },
+          where: { type: "string", description: "ekran ili url_name" },
+          why: { type: "string" },
+        },
+        required: ["what", "why"],
+      },
+    },
+    // Visited screens that carried no context file. Reported, never hidden:
+    // this is what the brain uses to decide which file to write next.
+    context_missing: { type: "array", items: { type: "string" } },
   },
   required: ["tickets", "rationale"],
 };

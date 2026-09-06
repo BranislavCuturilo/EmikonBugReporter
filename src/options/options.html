@@ -122,14 +122,17 @@
     <label class="field">
       <span class="lbl">Model</span>
       <select id="geminiModel">
-        <option value="gemini-flash-latest">gemini-flash-latest — brz, čita slike (preporuka)</option>
-        <option value="gemini-flash-lite-latest">gemini-flash-lite-latest — najjeftiniji</option>
+        <option value="gemini-flash-lite-latest">gemini-flash-lite-latest — najlakši, čita slike, 15/min · 500/dan (preporuka)</option>
+        <option value="gemini-flash-latest">gemini-flash-latest — brži model, veća potrošnja kvote</option>
         <option value="gemini-2.5-pro">gemini-2.5-pro — najbolji za razlaganje na više tiketa</option>
       </select>
     </label>
     <div class="row test">
       <button id="testGemini" type="button">Proveri vezu</button>
       <span id="geminiStatus" class="small muted">nije provereno</span>
+    </div>
+    <div class="row">
+      <span id="geminiQuota" class="small muted" title="Besplatni lite nivo: 15 poziva u minutu, 250k tokena u minutu, 500 poziva dnevno. Jedan tiket = 2 poziva."></span>
     </div>
   </section>
 
@@ -329,6 +332,7 @@
     <pre id="previewText"></pre>
     <div class="pf">
       <span id="previewMeta" class="small muted"></span>
+      <span id="previewTokens" class="small muted"></span>
       <span class="spacer"></span>
       <button id="previewClose" type="button">Zatvori</button>
     </div>

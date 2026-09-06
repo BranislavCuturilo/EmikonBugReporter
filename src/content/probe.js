@@ -104,6 +104,38 @@
     };
   }
 
+  /**
+   * What the app itself says about this screen and this session. The server
+   * renders two HTML comments right after <body> plus data-attributes on it
+   * (kontrola_vezuv: tenants/context_processors.py). Raw strings only -- the
+   * parsing lives in src/lib/page-context.js, which a content-script IIFE
+   * cannot import. Cheap: the comments are direct children of <body> and
+   * precede the first element, so the walk stops there.
+   */
+  function pageContext() {
+    const b = document.body;
+    if (!b) return null;
+    const out = {
+      pageId: clean(b.getAttribute("data-page")),
+      kind: clean(b.getAttribute("data-page-kind")),
+      role: clean(b.getAttribute("data-role")),
+      tenant: clean(b.getAttribute("data-tenant")),
+      pageRaw: "",
+      sessionRaw: "",
+    };
+    for (const n of b.childNodes) {
+      if (n.nodeType === Node.COMMENT_NODE) {
+        const s = String(n.nodeValue || "").trim();
+        if (s.startsWith("page-context")) out.pageRaw = s.slice(0, 4000);
+        else if (s.startsWith("session-context")) out.sessionRaw = s.slice(0, 4000);
+      } else if (n.nodeType === Node.ELEMENT_NODE && (out.pageRaw || out.sessionRaw)) {
+        break;
+      }
+      if (out.pageRaw && out.sessionRaw) break;
+    }
+    return (out.pageId || out.pageRaw || out.sessionRaw) ? out : null;
+  }
+
   function report() {
     chrome.storage.local.get("identitySelector", ({ identitySelector }) => {
       try {
@@ -113,6 +145,7 @@
           title: document.title,
           identity: detect(identitySelector),
           env: env(),
+          context: pageContext(),
         });
       } catch {
         /* worker asleep or extension reloading -- the next navigation retries */

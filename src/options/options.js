@@ -4,7 +4,7 @@ import {
   skillsFor, ALWAYS_GROUP,
 } from "../lib/prompts.js";
 import { Helpdesk } from "../lib/helpdesk.js";
-import { Gemini } from "../lib/gemini.js";
+import { Gemini, limiter } from "../lib/gemini.js";
 import { checkForUpdate, currentVersion } from "../lib/updater.js";
 import { HELPDESK_TOKEN_PATH, GEMINI_KEY_URL } from "../lib/constants.js";
 import { downloadBackup, importSettings } from "../lib/backup.js";
@@ -323,7 +323,11 @@ $("resetHouse").addEventListener("click", () => {
 
 function renderPreview() {
   const role = $("previewRole").value;
-  $("previewText").textContent = buildSystem(role, { houseStyle, skills });
+  const text = buildSystem(role, { houseStyle, skills });
+  $("previewText").textContent = text;
+  // ~chars/4: the same estimate ratelimit.js uses. Instruction cost is paid
+  // on every call, so a long house style is the first thing to trim.
+  $("previewTokens").textContent = `~${Math.ceil(text.length / 4)} tokena po pozivu`;
   const active = skillsFor(skills, role);
   $("previewMeta").textContent = active.length
     ? `${active.length} skill(ova) u ovom koraku: ${active.map((s) => s.name || "bez naziva").join(", ")}`
@@ -403,6 +407,7 @@ $("testGemini").addEventListener("click", async () => {
   } catch (e) {
     setStatus(el, String(e?.message || e), "err");
   }
+  renderQuota();
 });
 
 
@@ -593,7 +598,23 @@ $("save").addEventListener("click", async () => {
 
 // -- init ------------------------------------------------------------------
 
+// What the day's budget looks like. The count is the extension's own
+// (chrome.storage.local); Google's is authoritative, so this reads "koliko
+// smo mi potrosili", not "koliko je ostalo".
+async function renderQuota() {
+  const el = $("geminiQuota");
+  if (!el) return;
+  try {
+    const s = await limiter().status();
+    el.textContent = `Potrošnja ključa: danas ${s.today}/${s.rpd} poziva · poslednji minut ${s.lastMinuteCalls}/${s.rpm}`;
+    el.classList.toggle("err", s.today >= s.rpd);
+  } catch {
+    el.textContent = "";
+  }
+}
+
 async function init() {
+  renderQuota();
   const s = await loadSettings();
   for (const [id, prop] of Object.entries(FIELDS)) $(id)[prop] = s[id] ?? DEFAULTS[id];
 

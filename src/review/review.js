@@ -1,6 +1,8 @@
 import { getSession, patchSession } from "../lib/session-store.js";
 import { loadSettings, missingSetup } from "../lib/settings.js";
-import { Gemini } from "../lib/gemini.js";
+import { Gemini, onLimiterWait } from "../lib/gemini.js";
+import { buildTag, appendTag, editedFields, TAG_VERSION } from "../lib/tag.js";
+import { coverage } from "../lib/page-context.js";
 import { skillsFor, activeGroups } from "../lib/prompts.js";
 import { PRIORITIES, PRIORITY_DEFAULT, PRIORITY_HELP, TITLE_MAX } from "../lib/constants.js";
 import { Helpdesk } from "../lib/helpdesk.js";
@@ -13,6 +15,14 @@ const sessionId = new URLSearchParams(location.search).get("session");
 let session = null;
 let settings = null;
 let drafts = [];          // editable state; never read back out of the DOM
+// What the model proposed, frozen at compose time. Diffed against `drafts`
+// at send time: every field the user had to change is a field the model got
+// wrong, and that list rides the ticket tag back to the brain.
+let composed = [];
+let checksSuggested = [];  // [{what, where, why}] -- what the user could still verify
+let contextMissing = [];   // url_names visited with no docs/pages file
+const KINDS = ["bug", "limitation", "question", "change_request"];
+const KIND_LABEL = { bug: "greška", limitation: "ograničenje po dizajnu", question: "pitanje / pravo", change_request: "zahtev za izmenu" };
 let rationale = "";
 let modules = [];
 let categories = [];
@@ -172,9 +182,15 @@ async function runInterview() {
     });
     renderActiveSkills();
     const r = await g.interview(session, session.chat || []);
-    const text = r.ready
+    let text = r.ready
       ? `${r.note || "Imam dovoljno."}\n\nMožeš da klikneš „Sklopi“.`
       : (r.questions || []).map((q, i) => `${i + 1}. ${q}`).join("\n") || "Nemam pitanja.";
+    // What the user can check alone before the ticket goes -- drawn from the
+    // screen context (a right the session lacks, a flag that is OFF, a
+    // dependent screen). Shown with the questions, never instead of them.
+    const sugg = (r.suggestions || []).filter((x) => x && x.what)
+      .map((x) => `→ proveri: ${x.what}${x.where ? ` (${x.where})` : ""}${x.why ? ` — ${x.why}` : ""}`);
+    if (sugg.length) text += `\n\n${sugg.join("\n")}`;
     await pushChat("model", text);
     banner(r.ready ? "spremno za sklapanje" : "odgovori pa nastavi", r.ready ? "ok" : "muted");
   } catch (e) {
@@ -205,6 +221,17 @@ function renderDrafts() {
   if (orphans.length) {
     parts.push(`Nijedan tiket ne nosi: ${orphans.map((e) => e.id).join(", ")} — proveri da nešto nije propušteno.`);
   }
+  // Screens with no declaration are named, not hidden: the user should know
+  // the AI could not check "is this deliberate" for them, and the brain
+  // learns which file to write next.
+  if (contextMissing.length) {
+    parts.push(`Bez konteksta ekrana (ograničenja nisu proverena): ${contextMissing.join(", ")}`);
+  }
+  if (checksSuggested.length) {
+    parts.push("Pre slanja proveri: " + checksSuggested
+      .map((c) => `${c.what}${c.where ? ` (${c.where})` : ""}${c.why ? ` — ${c.why}` : ""}`)
+      .join("; "));
+  }
   note.textContent = parts.join("  ·  ");
   note.classList.toggle("hidden", parts.length === 0);
 
@@ -223,6 +250,16 @@ function draftCard(d, i) {
   // middle, so the position on screen matches what gets sent.
   idx.textContent = `${i + 1}.`;
   head.append(idx);
+  // A limitation is not a bug. The model decides, the user can overrule --
+  // and the overrule is itself a signal (it lands in `edited:` on the tag).
+  const kind = document.createElement("select");
+  kind.className = "sm";
+  for (const k of KINDS) kind.append(new Option(KIND_LABEL[k], k));
+  kind.value = KINDS.includes(d.kind) ? d.kind : "bug";
+  d.kind = kind.value;
+  kind.title = "Šta je ovo: greška, ograničenje po dizajnu, pitanje o pravima, ili zahtev za izmenu";
+  kind.addEventListener("change", () => { d.kind = kind.value; });
+  head.append(kind);
   const drop = document.createElement("button");
   drop.className = "sm ghost";
   drop.textContent = "ne šalji";
@@ -390,9 +427,15 @@ async function runCompose() {
     });
     renderActiveSkills();
     const r = await g.compose(session, session.chat || [], modules, categories);
-    drafts = (r.tickets || []).map((t) => ({ ...t }));
+    drafts = (r.tickets || []).map((t) => ({ ...t, kind: KINDS.includes(t.kind) ? t.kind : "bug" }));
+    composed = drafts.map((t) => ({ ...t }));
     rationale = r.rationale || "";
-    await patchSession(sessionId, { draft: { tickets: drafts, rationale }, status: "composing" });
+    checksSuggested = Array.isArray(r.checks_suggested) ? r.checks_suggested : [];
+    contextMissing = Array.isArray(r.context_missing) ? r.context_missing : [];
+    await patchSession(sessionId, {
+      draft: { tickets: drafts, composed, rationale, checksSuggested, contextMissing },
+      status: "composing",
+    });
     renderDrafts();
     banner(`${drafts.length} predlog(a)`, "ok");
   } catch (e) {
@@ -434,12 +477,33 @@ async function sendDraft(i, btn) {
   const key = `t${i}`;
   const journal = session.journals?.[key] || emptyJournal();
 
+  // The trace tag is the ONLY channel back to the brain: the helpdesk accepts
+  // nothing but ticket_description. Which screens had context, which did not,
+  // the session's role and flags, the skills in play, what kind of ticket this
+  // is, and which fields the user had to correct -- every one of these is a
+  // number the brain reads later (scripts/tickets/ebr_review.py).
+  const cov = coverage(session);
+  const activeSkills = skillsFor(settings.skills, "compose", { groups: settings.groups, urls: sessionUrls() })
+    .map((s) => s.name || "bez-naziva");
+  const tag = buildTag({
+    version: TAG_VERSION,
+    withContext: cov.withContext,
+    withoutContext: cov.withoutContext,
+    role: session.identity?.role || "",
+    flags: session.identity?.features_on || [],
+    skills: activeSkills,
+    kind: d.kind || "bug",
+    splitIndex: i + 1,
+    splitTotal: drafts.length,
+    edited: editedFields(composed[i], { ...d, kind: d.kind }, ["ticket_title", "ticket_description", "module", "category", "priority", "deadline", "kind"]),
+  });
+
   try {
     const res = await deliverTicket({
       hd,
       draft: {
         ticket_title: d.ticket_title.trim(),
-        ticket_description: d.ticket_description || "",
+        ticket_description: appendTag(d.ticket_description || "", tag),
         module: d.module || "",
         category: d.category || "",
         priority: PRIORITIES.includes(d.priority) ? d.priority : PRIORITY_DEFAULT,
@@ -557,8 +621,13 @@ async function init() {
 
   if (session.draft?.tickets?.length) {
     drafts = session.draft.tickets.map((t) => ({ ...t }));
+    composed = (session.draft.composed || session.draft.tickets).map((t) => ({ ...t }));
     rationale = session.draft.rationale || "";
+    checksSuggested = session.draft.checksSuggested || [];
+    contextMissing = session.draft.contextMissing || [];
   }
+  // The limiter's "cekam N s" lands where every other status does.
+  onLimiterWait((m) => banner(m, "ok"));
 
   if (settings.helpdeskUrl && settings.helpdeskToken) {
     try {

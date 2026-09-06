@@ -8,6 +8,7 @@
 // share this extension's origin. Routing those through here would only add a
 // message hop that dies with the worker.
 
+import { parsePageComment, parseSessionComment } from "../lib/page-context.js";
 import {
   emptySession, putSession, patchSession, appendConsole, appendNetwork,
   appendPage, addEvidence,
@@ -401,15 +402,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "PROBE") {
     getActive().then(async (active) => {
       if (!active || sender.tab?.id !== active.tabId) return;
+      // What the app declared about this screen and this session (page-context
+      // and session-context comments). Parsed here, once, so the session holds
+      // structure and the model input never re-reads raw comments.
+      const ctx = msg.context || null;
+      const pageCtx = ctx?.pageRaw ? parsePageComment(ctx.pageRaw) : null;
+      const sessCtx = ctx?.sessionRaw ? parseSessionComment(ctx.sessionRaw) : null;
       await patchSession(active.sessionId, (s) => ({
         ...s,
-        identity: { ...s.identity, ...(msg.identity || {}) },
+        identity: {
+          ...s.identity,
+          ...(msg.identity || {}),
+          // Role / permissions / flags come from the app itself and outrank
+          // any navbar heuristic. Kept even when a later page lacks them.
+          ...(sessCtx ? {
+            role: sessCtx.role || s.identity?.role || "",
+            permissions: sessCtx.permissions?.length ? sessCtx.permissions : (s.identity?.permissions || []),
+            tenant: sessCtx.tenant || s.identity?.tenant || "",
+            features_on: sessCtx.features_on?.length ? sessCtx.features_on : (s.identity?.features_on || []),
+            features_off_required: [...new Set([...(s.identity?.features_off_required || []), ...(sessCtx.features_off_required || [])])],
+          } : {}),
+        },
         env: { ...s.env, ...(msg.env || {}) },
       }));
       await appendPage(active.sessionId, {
         url: msg.url || "",
         title: msg.title || "",
         ts: Date.now(),
+        // pageId is the app's own name for the screen (data-page); context is
+        // null when the screen has no docs/pages file -- and that null is
+        // reported to the model and to the brain, not hidden.
+        pageId: ctx?.pageId || "",
+        context: pageCtx,
       });
     });
     return false;

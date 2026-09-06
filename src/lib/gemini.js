@@ -2,6 +2,24 @@
 // the helpdesk and nothing about the DOM -- it takes a session, returns JSON.
 
 import { buildSystem, INTERVIEW_SCHEMA, COMPOSE_SCHEMA } from "./prompts.js";
+import { contextBlock } from "./page-context.js";
+import { RateLimiter, estimateTokens, CHARS_PER_TOKEN, MAX_RETRIES_429 } from "./ratelimit.js";
+
+// One limiter per worker/page process. chrome.storage.local carries the daily
+// count across processes; the per-minute windows are per process, which is
+// safe because only one page composes at a time.
+let _limiter = null;
+export function limiter() {
+  if (!_limiter) {
+    const storage = (typeof chrome !== "undefined" && chrome.storage?.local) ? chrome.storage.local : null;
+    _limiter = new RateLimiter({ storage, onWait: (m) => _onWait(m) });
+  }
+  return _limiter;
+}
+let _onWait = () => {};
+/** Where the UI hangs its "cekam N s" banner. */
+export function onLimiterWait(fn) { _onWait = typeof fn === "function" ? fn : () => {}; }
+
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -30,9 +48,10 @@ export class Gemini {
   /** `houseStyle` and `skills` come straight from settings, so a rule the user
    *  edits in Options takes effect on the very next turn -- there is no copy of
    *  them anywhere else. Passing neither falls back to the shipped defaults. */
-  constructor({ apiKey = "", model = "gemini-flash-latest", houseStyle = "", skills = [], groups = null } = {}) {
+  constructor({ apiKey = "", model = "gemini-flash-lite-latest", houseStyle = "", skills = [], groups = null, onWait = null } = {}) {
     this.apiKey = String(apiKey || "");
-    this.model = String(model || "gemini-flash-latest");
+    this.model = String(model || "gemini-flash-lite-latest");
+    this.onWait = typeof onWait === "function" ? onWait : (m) => _onWait(m);
     this.houseStyle = houseStyle;
     this.skills = skills;
     this.groups = groups;
@@ -54,19 +73,36 @@ export class Gemini {
         ...(schema ? { responseSchema: schema } : {}),
       },
     };
+
+    // The key is on the lite tier: 15 RPM, 250k TPM, 500 RPD. Estimate the
+    // input, wait if a window is full, refuse if the day is spent -- and say
+    // so, because a limiter that silently drops a call reads as "the AI does
+    // nothing". Then retry a 429 with backoff, honouring Retry-After.
+    const est = estimateTokens(contents) + Math.ceil(String(system || "").length / CHARS_PER_TOKEN);
+    await limiter().acquire(est);
+
     let resp;
-    try {
-      resp = await fetch(`${ENDPOINT}/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      throw new GeminiError(`poziv Gemini-ju nije uspeo: ${e.name}`);
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        resp = await fetch(`${ENDPOINT}/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw new GeminiError(`poziv Gemini-ju nije uspeo: ${e.name}`);
+      }
+      if (resp.status === 429 && attempt <= MAX_RETRIES_429) {
+        const ms = RateLimiter.backoffMs(attempt, resp.headers.get("retry-after"));
+        this.onWait(`Gemini vratio 429 -- pokusaj ${attempt}/${MAX_RETRIES_429} za ${Math.ceil(ms / 1000)} s.`);
+        await new Promise((r) => setTimeout(r, ms));
+        continue;
+      }
+      break;
     }
     if (!resp.ok) {
       const hint = resp.status === 400 ? " (proveri API kljuc i naziv modela)"
-        : resp.status === 429 ? " (kvota potrosena -- probaj laksi model)" : "";
+        : resp.status === 429 ? " (kvota potrosena -- sacekaj ili promeni kljuc u Opcijama)" : "";
       throw new GeminiError(`Gemini -> HTTP ${resp.status}${hint}`, resp.status);
     }
     const data = await resp.json();
@@ -115,11 +151,16 @@ export class Gemini {
   }
 
   /** Compose one ticket, or propose a decomposition into several. */
-  async compose(session, history = [], modules = []) {
+  async compose(session, history = [], modules = [], categories = []) {
     this.urls = Gemini.urlsOf(session);
     const parts = await evidenceParts(session);
     if (modules.length) {
       parts.push({ text: `\nDOSTUPNI MODULI (izaberi tacno jedan naziv po tiketu):\n${modules.join(", ")}` });
+    }
+    // review.js always passed these; the signature dropped them, so the model
+    // picked a category with no list and the UI then refused it.
+    if (categories.length) {
+      parts.push({ text: `\nDOSTUPNE KATEGORIJE (izaberi tacno jednu, ili prazno):\n${categories.join(", ")}` });
     }
     const contents = [{ role: "user", parts }, ...history.map(toContent)];
     return this._generate({
@@ -155,6 +196,13 @@ export async function evidenceParts(session) {
     lines.push("\n=== PUTANJA KROZ APLIKACIJU ===");
     for (const p of pages) lines.push(`- ${p.url}${p.title ? `  (${p.title})` : ""}`);
   }
+
+  // Who the user is (role, declared permissions, enabled flags) and what each
+  // visited screen declares about itself -- including "no declaration". This
+  // is the block that lets the model say "ogranicenje po dizajnu" instead of
+  // "bug", and "nema pravo" instead of "ne radi".
+  const ctx = contextBlock(s);
+  if (ctx) lines.push("\n" + ctx);
 
   // Errors and warnings only. An info-level console is noise in a bug report.
   const con = (s.console || []).filter((c) => c.level === "error" || c.level === "warning").slice(-MAX_CONSOLE);

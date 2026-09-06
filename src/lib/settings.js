@@ -10,7 +10,7 @@ export const DEFAULTS = {
   helpdeskUrl: "https://tiket.emikon.rs",
   helpdeskToken: "",
   geminiKey: "",
-  geminiModel: "gemini-flash-latest",
+  geminiModel: "gemini-flash-lite-latest",
   defaultModule: "",
   defaultCategory: "",
   defaultPriority: PRIORITY_DEFAULT,
