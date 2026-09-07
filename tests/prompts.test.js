@@ -25,7 +25,11 @@ test("the compose instruction teaches the kind decision and the missing-context 
                    "NEMA KONTEKST FAJL", "context_missing", "checks_suggested"]) {
     assert.ok(sys.includes(s), "compose system lacks: " + s);
   }
+  assert.ok(sys.includes("EKRAN NIJE") && sys.includes("NISU dozvoljeni"),
+    "compose: without a declaration, limitation and question are forbidden");
   const iv = buildSystem("interview");
   assert.ok(iv.includes("suggestions"), "interview system lacks suggestions");
+  assert.ok(iv.includes("ranije bila") && iv.includes("drugom ulogom"),
+    "interview: without a declaration, ask what the declaration would have said");
   assert.ok(!iv.includes("checks_suggested"), "interview must not carry compose-only fields");
 });

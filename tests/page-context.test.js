@@ -3,7 +3,7 @@
 // moves, this file is the first thing that goes red.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePageComment, parseSessionComment, contextBlock, coverage } from "../src/lib/page-context.js";
+import { parsePageComment, parseSessionComment, contextBlock, coverage, screenKey } from "../src/lib/page-context.js";
 
 const PAGE = `page-context audits:audit_detail
 kind: detail | access: prijavljen, član tenanta | requires: audit.view_all, audit.execute | feature: escalations
@@ -70,15 +70,34 @@ test("contextBlock: one entry per screen, missing files named, session first", (
   assert.match(block, /flagovi OFF koje poseceni ekrani traze: fault_reporting/);
   assert.equal((block.match(/\[audits:audit_detail/g) || []).length, 1, "deduped per screen");
   assert.match(block, /\[locations:create\] — NEMA KONTEKST FAJL/);
+  assert.match(block, /\[\/c\] — EKRAN NIJE OZNACEN/, "a page the app did not mark is named by path");
   assert.doesNotMatch(block, /\[\]/);
   assert.match(block, /NE DOZVOLJAVA: otvaranje revizije van sopstvenog domena/);
   assert.match(block, /\(audit-2026-06-01\)/);
   assert.ok(block.indexOf("=== SESIJA") < block.indexOf("=== KONTEKST EKRANA"));
 });
 
-test("contextBlock is empty for a session that carried nothing", () => {
-  assert.equal(contextBlock({ pages: [{ url: "/x" }] }), "");
+test("contextBlock is empty only for a session with no pages at all", () => {
+  assert.equal(contextBlock({ pages: [] }), "");
   assert.equal(contextBlock(null), "");
+});
+
+test("an app that publishes nothing: the session says so, every screen is named unmarked, capped", () => {
+  const pages = Array.from({ length: 9 }, (_, i) => ({ url: `https://popis.example/s/${i}?q=1` }));
+  const block = contextBlock({ identity: { user: "pera" }, pages });
+  assert.match(block, /^=== SESIJA: KO, PRAVA, FLAGOVI ===\nAplikacija NE objavljuje ulogu/);
+  assert.match(block, /Prava korisnika NISU poznata/);
+  assert.equal((block.match(/EKRAN NIJE OZNACEN/g) || []).length, 6, "six named");
+  assert.match(block, /\(\+3 neoznacenih ekrana\)/);
+  assert.match(block, /\[\/s\/0\]/, "path without the query string");
+});
+
+test("screenKey: url_name, else data-page, else ?path", () => {
+  assert.equal(screenKey({ context: { url_name: "a:b" }, pageId: "x" }), "a:b");
+  assert.equal(screenKey({ pageId: "a:b" }), "a:b");
+  assert.equal(screenKey({ url: "https://h/p/q?z" }), "?/p/q");
+  assert.equal(screenKey({ url: "/rel?z" }), "?/rel");
+  assert.equal(screenKey({}), "");
 });
 
 test("coverage splits screens with a file from screens without one", () => {
@@ -89,4 +108,6 @@ test("coverage splits screens with a file from screens without one", () => {
   ] });
   assert.deepEqual(cov.withContext, ["a"]);
   assert.deepEqual(cov.withoutContext, ["b"]);
+  const un = coverage({ pages: [{ url: "https://h/x/y?z=1" }, { url: "https://h/x/y" }, { pageId: "b" }] });
+  assert.deepEqual(un.withoutContext, ["?/x/y", "b"], "unmarked screens ride as ?path, deduped");
 });

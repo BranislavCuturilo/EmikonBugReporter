@@ -67,6 +67,12 @@ Pravila ispitivanja:
   KONTEKST EKRANA: sifarnik od kog ekran zavisi, pravo koje sesija nema,
   flag koji je OFF. Ako blok kaze da je trazeno pod "NE DOZVOLJAVA", reci
   to odmah u "note" -- mozda tiket nije ni potreban.
+- BEZ KONTEKSTA: ako blok KONTEKST EKRANA za ekran kaze NEMA KONTEKST FAJL
+  ili EKRAN NIJE OZNACEN, ili bloka uopste nema, niko nije deklarisao sta taj
+  ekran sme. Jedno od tvoja najvise 2 pitanja tada prikuplja ono sto bi
+  deklaracija rekla: da li je ta akcija ili dugme ovom korisniku ranije bila
+  dostupna, i da li je kolega sa drugom ulogom vidi. Reci korisniku da za
+  taj ekran nema opisa pa se oslanjas na njega.
 
 Odgovaras ISKLJUCIVO JSON-om po datoj semi.
 `.trim();
@@ -98,9 +104,16 @@ STA JE OVO -- polje "kind" za svaki tiket, po ovom redu odlucivanja:
    ukljucen modul, ne programer. Napisi tacno koje pravo ili flag.
 3. Ako je zahtev za novu mogucnost, "change_request".
 4. Inace "bug".
-Ekran oznacen "NEMA KONTEKST FAJL" nema deklaraciju -- ne zakljucuj da je
-sve dozvoljeno; navedi ga u "context_missing" i u "rationale" reci da za
-njega nisi mogao da proveris ogranicenja.
+5. BEZ KONTEKSTA: ako za ekran blok kaze NEMA KONTEKST FAJL ili EKRAN NIJE
+   OZNACEN, ili bloka uopste nema, "limitation" i "question" za taj ekran
+   NISU dozvoljeni -- namera i prava nisu deklarisani i ne pogadjaju se iz
+   reci korisnika. Uzmi "bug" (ili "change_request" za novu mogucnost), u
+   opis dodaj red "Kontekst ekrana: nije dostupan -- nije provereno da li je
+   namerno ili stvar prava", navedi ekran u "context_missing", a u
+   "checks_suggested" predlozi proveru sa drugom ulogom ili kod
+   administratora. Odgovor korisnika iz intervjua (ranije radilo / kolega
+   vidi) prenesi u opis kao cinjenicu iz razgovora, ne kao deklaraciju.
+   Ako SESIJA kaze da aplikacija ne objavljuje prava, ne tvrdi "nemate pravo".
 
 STA JOS DA SE PROVERI -- "checks_suggested": 0 do 3 stavke koje bi
 programeru ustedele krug pitanja, izvedene iz konteksta (sifarnik od kog
