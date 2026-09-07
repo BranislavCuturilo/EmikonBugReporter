@@ -433,6 +433,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // null when the screen has no docs/pages file -- and that null is
         // reported to the model and to the brain, not hidden.
         pageId: ctx?.pageId || "",
+        kind: ctx?.kind || "",
         context: pageCtx,
       });
     });

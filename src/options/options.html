@@ -41,6 +41,10 @@
     .skill .head input[type="text"] { flex: 1; }
     .skill .head input[type="checkbox"] { width: auto; flex: 0 0 auto; }
     .skill select.scope { width: auto; flex: 0 0 auto; font-size: 12px; padding: 4px 8px; }
+    .skill .kinds { display: flex; gap: 4px; flex-wrap: wrap; }
+    .skill details { margin-top: 6px; }
+    .skill details summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
+    .skill details pre { white-space: pre-wrap; font: 12px/1.45 var(--mono); margin: 6px 0 0; }
     .skill textarea { margin-top: 8px; min-height: 76px; font-family: var(--mono); font-size: 12px; }
 
     .empty {
@@ -172,6 +176,15 @@
     <div class="row" style="margin-top: 10px">
       <button id="addGroup" type="button">+ Dodaj grupu</button>
     </div>
+
+    <h3 style="margin-top: 22px">Ugrađeni skillovi</h3>
+    <p class="small muted" style="margin-top: 0">
+      Dolaze iz brain-a — generisani iz istih pravila po kojima se ekrani prave — i
+      šalju se samo kad je sesija bila na ekranu te vrste (lista, forma, detalj…).
+      Ovde samo uključi ili isključi; tekst se menja u izvoru, ne ovde.
+    </p>
+    <div id="shippedSkills" class="skills"></div>
+    <div id="shippedEmpty" class="empty hidden">Nema ugrađenih skillova u ovoj verziji.</div>
 
     <h3 style="margin-top: 22px">Skillovi</h3>
     <p class="small muted" style="margin-top: 0">
@@ -324,6 +337,15 @@
     <div class="row" style="padding: 12px 14px; border-bottom: 1px solid var(--border)">
       <b>Instrukcija koja ide Gemini-ju</b>
       <span class="spacer"></span>
+      <select id="previewKind" style="width: auto" title="Vrsta ekrana koju je sesija posetila — bira ugrađene skillove">
+        <option value="">bez vrste ekrana</option>
+        <option value="list">lista</option>
+        <option value="detail">detalj</option>
+        <option value="create">nova forma</option>
+        <option value="update">izmena</option>
+        <option value="dashboard">kontrolna tabla</option>
+        <option value="report">izveštaj</option>
+      </select>
       <select id="previewRole" style="width: auto">
         <option value="compose">korak: sklapanje tiketa</option>
         <option value="interview">korak: ispitivanje</option>

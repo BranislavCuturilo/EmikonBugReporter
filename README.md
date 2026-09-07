@@ -82,6 +82,19 @@ slikaš ono što korisnik zaista vidi. Zato postoje druge dve.
 Traka se pre svakog snimanja skloni i **sačeka dva frejma** da Chrome to stvarno
 iscrta — jedan frejm nije dovoljan i traka ostane na slici.
 
+### Ugrađeni skillovi
+
+Uz skillove koje sam pišeš, ekstenzija nosi i **ugrađene** — `src/skills/*.md`.
+Nisu pisani ovde: generiše ih brain (`scripts/brain/extension_skills.py`) iz istih
+pravila po kojima se ekrani prave (`ui-bootstrap`), pa je pravilo po kome se tiket
+ocenjuje isto ono po kome je ekran napravljen. Zato su u Opcijama **samo
+uključi/isključi** — tekst se menja u izvoru, nikad u kopiji.
+
+Svaki ima `kind` (lista, detalj, forma, kontrolna tabla…) i šalje se **samo kad je
+sesija bila na ekranu te vrste** — vrsta dolazi iz `data-page-kind` koji aplikacija
+renderuje na `<body>`. Sesija na dve liste plaća pravila za liste i ništa drugo;
+sesija bez ijednog označenog ekrana dobija samo opšti skill.
+
 ### Skill grupe
 
 ⚙ → Grupe. Grupa vezuje skillove za adrese:

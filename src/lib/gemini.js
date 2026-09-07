@@ -3,6 +3,7 @@
 
 import { buildSystem, INTERVIEW_SCHEMA, COMPOSE_SCHEMA } from "./prompts.js";
 import { contextBlock } from "./page-context.js";
+import { kindsOf } from "./skill-files.js";
 import { RateLimiter, estimateTokens, CHARS_PER_TOKEN, MAX_RETRIES_429 } from "./ratelimit.js";
 
 // One limiter per worker/page process. chrome.storage.local carries the daily
@@ -55,6 +56,7 @@ export class Gemini {
     this.houseStyle = houseStyle;
     this.skills = skills;
     this.groups = groups;
+    this.kinds = [];
     // Filled per call from the session, because which groups apply depends on
     // where the user actually went -- it is not a property of the settings.
     this.urls = [];
@@ -132,12 +134,14 @@ export class Gemini {
       skills: this.skills,
       groups: this.groups,
       urls: this.urls,
+      kinds: this.kinds,
     });
   }
 
   /** One interview turn: what still has to be asked. */
   async interview(session, history = []) {
     this.urls = Gemini.urlsOf(session);
+    this.kinds = kindsOf(session);
     const contents = [
       { role: "user", parts: await evidenceParts(session) },
       ...history.map(toContent),
@@ -153,6 +157,7 @@ export class Gemini {
   /** Compose one ticket, or propose a decomposition into several. */
   async compose(session, history = [], modules = [], categories = []) {
     this.urls = Gemini.urlsOf(session);
+    this.kinds = kindsOf(session);
     const parts = await evidenceParts(session);
     if (modules.length) {
       parts.push({ text: `\nDOSTUPNI MODULI (izaberi tacno jedan naziv po tiketu):\n${modules.join(", ")}` });

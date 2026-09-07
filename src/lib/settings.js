@@ -4,6 +4,7 @@
 // servers, which is not what "unesi svoj kljuc" is supposed to mean).
 
 import { STARTER_SKILLS, STARTER_GROUPS, ALWAYS_GROUP } from "./prompts.js";
+import { loadShippedSkills, withSwitches } from "./skill-files.js";
 import { PRIORITY_DEFAULT } from "./constants.js";
 
 export const DEFAULTS = {
@@ -29,6 +30,9 @@ export const DEFAULTS = {
   houseStyle: "",
   skills: null,   // null = never initialised; [] = user deleted them all
   groups: null,   // same convention as skills
+  // Ids of SHIPPED skills (src/skills/*.md) the user switched off. Their text
+  // is never stored: it is generated from the brain and read from the files.
+  shippedOff: [],
 
   // Where updates are checked. "owner/name" -- the public repository the
   // installer cloned from. Empty means update checking is simply off, which is
@@ -55,7 +59,16 @@ export async function loadSettings() {
   // everywhere-group, which is exactly how it behaved before -- an old skill
   // must not fall silent because a new field appeared.
   s.skills = s.skills.map((x) => (x.groupId ? x : { ...x, groupId: ALWAYS_GROUP }));
+  // Not persisted -- rebuilt from the packaged files on every load, so an
+  // update to the extension is an update to the rules, with no migration.
+  s.shipped = withSwitches(await loadShippedSkills(), s.shippedOff);
   return s;
+}
+
+/** Shipped skills first (the general rule before the specific), then the
+ *  user's own. This is the ONLY place the two lists meet. */
+export function allSkills(s) {
+  return [...(s?.shipped || []), ...(s?.skills || [])];
 }
 
 export async function saveSettings(patch) {

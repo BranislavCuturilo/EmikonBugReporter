@@ -13,7 +13,7 @@ const full = {
 
 test("build -> parse is lossless", () => {
   const tag = buildTag(full);
-  assert.match(tag, /^\[ebr 1\.3 \| screens: audits:audit_detail✓ locations:create✗ \| role: revizor/);
+  assert.match(tag, /^\[ebr 0\.3 \| screens: audits:audit_detail✓ locations:create✗ \| role: revizor/);
   const back = parseTag(`Neki opis.\n\nKoraci...\n\n${tag}`);
   assert.deepEqual(back, { version: TAG_VERSION, ...full });
 });

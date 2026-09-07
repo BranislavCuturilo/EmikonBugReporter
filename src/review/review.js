@@ -1,8 +1,9 @@
 import { getSession, patchSession } from "../lib/session-store.js";
-import { loadSettings, missingSetup } from "../lib/settings.js";
+import { loadSettings, missingSetup, allSkills } from "../lib/settings.js";
 import { Gemini, onLimiterWait } from "../lib/gemini.js";
 import { buildTag, appendTag, editedFields, TAG_VERSION } from "../lib/tag.js";
 import { coverage } from "../lib/page-context.js";
+import { kindsOf } from "../lib/skill-files.js";
 import { skillsFor, activeGroups } from "../lib/prompts.js";
 import { PRIORITIES, PRIORITY_DEFAULT, PRIORITY_HELP, TITLE_MAX } from "../lib/constants.js";
 import { Helpdesk } from "../lib/helpdesk.js";
@@ -177,7 +178,7 @@ async function runInterview() {
       apiKey: settings.geminiKey,
       model: settings.geminiModel,
       houseStyle: settings.houseStyle,
-      skills: settings.skills,
+      skills: allSkills(settings),
       groups: settings.groups,
     });
     renderActiveSkills();
@@ -422,7 +423,7 @@ async function runCompose() {
       apiKey: settings.geminiKey,
       model: settings.geminiModel,
       houseStyle: settings.houseStyle,
-      skills: settings.skills,
+      skills: allSkills(settings),
       groups: settings.groups,
     });
     renderActiveSkills();
@@ -483,7 +484,7 @@ async function sendDraft(i, btn) {
   // is, and which fields the user had to correct -- every one of these is a
   // number the brain reads later (scripts/tickets/ebr_review.py).
   const cov = coverage(session);
-  const activeSkills = skillsFor(settings.skills, "compose", { groups: settings.groups, urls: sessionUrls() })
+  const activeSkills = skillsFor(allSkills(settings), "compose", { groups: settings.groups, urls: sessionUrls(), kinds: kindsOf(session) })
     .map((s) => s.name || "bez-naziva");
   const tag = buildTag({
     version: TAG_VERSION,
@@ -548,10 +549,11 @@ function renderActiveSkills() {
   // Scoped to the addresses THIS session actually visited, so the pill says
   // what will really be sent -- not what is switched on in Options.
   const urls = sessionUrls();
-  const active = skillsFor(settings.skills, "compose", { groups: settings.groups, urls });
+  const kinds = kindsOf(session);
+  const active = skillsFor(allSkills(settings), "compose", { groups: settings.groups, urls, kinds });
   const groups = activeGroups(settings.groups, urls);
   const pill = $("activeSkills");
-  pill.textContent = active.length ? `${active.length} skill` : "bez skillova";
+  pill.textContent = (active.length ? `${active.length} skill` : "bez skillova") + (kinds.length ? ` · ${kinds.join(", ")}` : "");
   pill.title = active.length
     ? `Grupe u igri: ${groups.map((g) => g.name || "bez naziva").join(", ") || "—"}
 ` +

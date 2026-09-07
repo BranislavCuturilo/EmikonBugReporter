@@ -268,7 +268,7 @@ export function activeGroups(groups, urls = []) {
  * Called without `groups` (the old two-argument form) every skill passes the
  * group test, so nothing that existed before groups changes behaviour.
  */
-export function skillsFor(skills, role, { groups = null, urls = [] } = {}) {
+export function skillsFor(skills, role, { groups = null, urls = [], kinds = [] } = {}) {
   let allowed = null;
   if (groups) {
     allowed = new Set(activeGroups(groups, urls).map((g) => g.id));
@@ -277,6 +277,13 @@ export function skillsFor(skills, role, { groups = null, urls = [] } = {}) {
   return (skills || []).filter((s) => {
     if (!s.enabled || !s.text?.trim()) return false;
     if (s.scope !== "both" && s.scope !== role) return false;
+    // A shipped skill names the screen kinds it is for and applies only when
+    // the session touched one of them ("any" always). A user skill has no
+    // `kind` and is unaffected -- it was written before kinds existed.
+    if (Array.isArray(s.kind) && s.kind.length && !s.kind.includes("any")) {
+      const have = new Set((kinds || []).map((k) => String(k).toLowerCase()));
+      if (!s.kind.some((k) => have.has(String(k).toLowerCase()))) return false;
+    }
     if (!allowed) return true;
     return allowed.has(s.groupId || ALWAYS_GROUP);
   });
@@ -289,9 +296,9 @@ export function skillsFor(skills, role, { groups = null, urls = [] } = {}) {
  * with the JSON-only instruction, so it has to be LAST -- a chatty skill
  * appended after it can talk the model out of returning JSON at all.
  */
-export function buildSystem(role, { houseStyle = "", skills = [], groups = null, urls = [] } = {}) {
+export function buildSystem(role, { houseStyle = "", skills = [], groups = null, urls = [], kinds = [] } = {}) {
   const base = (houseStyle || "").trim() || DEFAULT_HOUSE_STYLE;
-  const active = skillsFor(skills, role, { groups, urls });
+  const active = skillsFor(skills, role, { groups, urls, kinds });
   const parts = [base];
 
   if (active.length) {

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RateLimiter, RateLimitError, estimateTokens, TOKENS_PER_IMAGE } from "../src/lib/ratelimit.js";
 
-function harness({ day = "2026-09-06", n = 0, rpm = 15, tpm = 250_000, rpd = 500 } = {}) {
+function harness({ day = new Date(1_000_000).toISOString().slice(0, 10), n = 0, rpm = 15, tpm = 250_000, rpd = 500 } = {}) {
   let t = 1_000_000;
   const slept = [];
   const waits = [];

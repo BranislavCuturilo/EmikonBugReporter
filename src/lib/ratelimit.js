@@ -36,7 +36,7 @@ export function estimateTokens(contents) {
   return Math.ceil(chars / CHARS_PER_TOKEN) + images * TOKENS_PER_IMAGE;
 }
 
-const DAY = () => new Date().toISOString().slice(0, 10);
+const DAY = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
 
 export class RateLimiter {
   /**
@@ -73,10 +73,10 @@ export class RateLimiter {
   }
 
   async _daily() {
-    if (!this.storage) return { day: DAY(), n: 0 };
+    if (!this.storage) return { day: DAY(this.now()), n: 0 };
     const got = await this.storage.get("geminiDaily");
     const d = got?.geminiDaily;
-    if (!d || d.day !== DAY()) return { day: DAY(), n: 0 };
+    if (!d || d.day !== DAY(this.now())) return { day: DAY(this.now()), n: 0 };
     return d;
   }
 

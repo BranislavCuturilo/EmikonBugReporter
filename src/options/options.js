@@ -37,6 +37,7 @@ const FIELDS = {
 // time is how typed text silently fails to be saved.
 let skills = [];
 let groups = [];
+let shipped = [];   // read-only; only `enabled` is the user's
 let houseStyle = "";
 
 /** Status text on a marker element. Uses classList, never `className =` --
@@ -56,6 +57,7 @@ function readForm() {
   out.houseStyle = houseStyle;
   out.skills = skills;
   out.groups = groups;
+  out.shippedOff = shipped.filter((x) => !x.enabled).map((x) => x.id);
   // stored 0..1, shown 25..100
   out.overlayOpacity = Number($("overlayOpacity").value) / 100;
   return out;
@@ -286,6 +288,52 @@ function skillRow(s) {
   return row;
 }
 
+// Shipped skills: name, the kinds they fire on, the rule under a fold, and
+// one switch. No text field -- the text is generated, and an edit here
+// would be the second copy the generator exists to prevent.
+function shippedRow(s) {
+  const row = document.createElement("div");
+  row.className = "skill";
+  row.classList.toggle("off", !s.enabled);
+  const head = document.createElement("div");
+  head.className = "head";
+  const on = document.createElement("input");
+  on.type = "checkbox";
+  on.checked = Boolean(s.enabled);
+  on.title = "Uključi ovaj ugrađeni skill";
+  on.addEventListener("change", () => { s.enabled = on.checked; row.classList.toggle("off", !s.enabled); });
+  const name = document.createElement("span");
+  name.textContent = s.name;
+  name.style.flex = "1";
+  const kinds = document.createElement("span");
+  kinds.className = "kinds";
+  for (const k of s.kind || []) {
+    const c = document.createElement("span");
+    c.className = "pill";
+    c.textContent = k === "any" ? "svaki ekran" : k;
+    kinds.append(c);
+  }
+  const scope = document.createElement("span");
+  scope.className = "small muted";
+  scope.textContent = SKILL_SCOPES[s.scope] || s.scope;
+  head.append(on, name, kinds, scope);
+  const det = document.createElement("details");
+  const sum = document.createElement("summary");
+  sum.textContent = `pravilo · izvor: ${s.source || "brain"}`;
+  const pre = document.createElement("pre");
+  pre.textContent = s.text;
+  det.append(sum, pre);
+  row.append(head, det);
+  return row;
+}
+
+function renderShipped() {
+  const wrap = $("shippedSkills");
+  wrap.replaceChildren();
+  $("shippedEmpty").classList.toggle("hidden", shipped.length > 0);
+  for (const s of shipped) wrap.append(shippedRow(s));
+}
+
 function renderSkills() {
   const wrap = $("skills");
   wrap.replaceChildren();
@@ -323,7 +371,8 @@ $("resetHouse").addEventListener("click", () => {
 
 function renderPreview() {
   const role = $("previewRole").value;
-  const text = buildSystem(role, { houseStyle, skills });
+  const kinds = [$("previewKind").value].filter(Boolean);
+  const text = buildSystem(role, { houseStyle, skills: [...shipped, ...skills], kinds });
   $("previewText").textContent = text;
   // ~chars/4: the same estimate ratelimit.js uses. Instruction cost is paid
   // on every call, so a long house style is the first thing to trim.
@@ -339,6 +388,7 @@ $("previewPrompt").addEventListener("click", () => {
   $("preview").showModal();
 });
 $("previewRole").addEventListener("change", renderPreview);
+$("previewKind").addEventListener("change", renderPreview);
 $("previewClose").addEventListener("click", () => $("preview").close());
 
 // -- connection tests ------------------------------------------------------
@@ -628,8 +678,10 @@ async function init() {
 
   groups = (s.groups || []).map((g) => ({ ...g, patterns: [...(g.patterns || [])] }));
   skills = (s.skills || []).map((x) => ({ ...x }));
+  shipped = (s.shipped || []).map((x) => ({ ...x }));
   renderGroups();
   renderSkills();
+  renderShipped();
 
   // The saved module is not in the <select> until the list loads; hold it.
   // Hold the saved values until the real lists arrive, so a slow network does
