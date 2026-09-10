@@ -1,8 +1,8 @@
 // The trace tag: one bracketed line at the end of every ticket description.
 //
-//   [ebr 1.3 | screens: audits:audit_detail✓ locations:create✗ | role: revizor
+//   [ebr 0.4 | screens: audits:audit_detail✓ locations:create✗ | role: revizor
 //    | flags: escalations,scoring | skills: screen-list,vez-tenant | kind: limitation
-//    | split: 2/2 | edited: title,priority]
+//    | split: 2/2 | skip: pitanja | edited: title,priority]
 //
 // Why it exists. The helpdesk API accepts only ticket_description, so this is
 // the ONLY channel through which "the extension was used, on these screens,
@@ -12,14 +12,23 @@
 // context file, which context was wrong (a `limitation` later fixed as a bug),
 // and which fields the model keeps getting wrong (`edited:`).
 //
+// `skip:` (0.4) is which wizard steps the reporter declined. It is here for one
+// question nobody can answer today: does an interview actually produce a better
+// ticket? Skipping used to be the shortest path and left no trace, so the
+// comparison was impossible. Recorded, `ebr_review.py` can eventually put a
+// number on it -- until then no text anywhere claims one.
+//
 // Pure. Parsed by the same regex on both sides so a format change is one edit.
+// A 0.3 tag still parses here: fields are read by name, and a missing one is
+// empty rather than an error.
 
-export const TAG_VERSION = "0.3";
+export const TAG_VERSION = "0.4";
 const OPEN = "[ebr ";
 
 export function buildTag({
   version = TAG_VERSION, withContext = [], withoutContext = [], role = "",
-  flags = [], skills = [], kind = "", splitIndex = 0, splitTotal = 0, edited = [],
+  flags = [], skills = [], kind = "", splitIndex = 0, splitTotal = 0,
+  skipped = [], edited = [],
 } = {}) {
   const screens = [
     ...withContext.map((s) => `${s}✓`),
@@ -33,6 +42,7 @@ export function buildTag({
     `kind: ${kind || "-"}`,
   ];
   if (splitTotal > 1) f.push(`split: ${splitIndex}/${splitTotal}`);
+  f.push(`skip: ${skipped.join(",") || "-"}`);
   f.push(`edited: ${edited.join(",") || "-"}`);
   return `${OPEN}${version} | ${f.join(" | ")}]`;
 }
@@ -51,8 +61,11 @@ export function stripTag(description) {
 export function parseTag(description) {
   const m = /\[ebr ([^|\]]+)\|([^\]]*)\]\s*$/.exec(String(description || ""));
   if (!m) return null;
+  // Every list defaults to empty, which is also what a 0.3 tag yields for
+  // `skipped` -- an older ticket reads as "nothing declared", never as an error.
   const out = { version: m[1].trim(), withContext: [], withoutContext: [], role: "",
-                flags: [], skills: [], kind: "", splitIndex: 0, splitTotal: 0, edited: [] };
+                flags: [], skills: [], kind: "", splitIndex: 0, splitTotal: 0,
+                skipped: [], edited: [] };
   for (const raw of m[2].split("|")) {
     const [k, ...rest] = raw.split(":");
     const v = rest.join(":").trim();
@@ -72,6 +85,7 @@ export function parseTag(description) {
         const [i, n] = v.split("/").map(Number);
         out.splitIndex = i || 0; out.splitTotal = n || 0; break;
       }
+      case "skip": out.skipped = v === "-" ? [] : v.split(",").filter(Boolean); break;
       case "edited": out.edited = v === "-" ? [] : v.split(",").filter(Boolean); break;
       default: break;
     }

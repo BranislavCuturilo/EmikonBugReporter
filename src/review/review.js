@@ -5,6 +5,7 @@ import { buildTag, appendTag, editedFields, TAG_VERSION } from "../lib/tag.js";
 import { coverage } from "../lib/page-context.js";
 import { kindsOf } from "../lib/skill-files.js";
 import { skillsFor, activeGroups } from "../lib/prompts.js";
+import { wizardState, withSkip, modelTurns } from "../lib/wizard.js";
 import { PRIORITIES, PRIORITY_DEFAULT, PRIORITY_HELP, TITLE_MAX } from "../lib/constants.js";
 import { Helpdesk } from "../lib/helpdesk.js";
 import { deliverTicket, emptyJournal } from "../lib/deliver.js";
@@ -145,6 +146,68 @@ function renderLogs() {
     (n) => `${n.status || "GREŠKA"} ${n.method} ${n.url}${n.errorText ? ` — ${n.errorText}` : ""}`);
 }
 
+// -- the wizard ------------------------------------------------------------
+//
+// Order used to be implicit: two buttons, and whichever the reporter pressed
+// first decided the shape of the ticket. Nothing recorded that the interview
+// had been skipped, so nobody could ever ask whether it was worth having.
+// Everything here DERIVES from session state -- a stored "current step" would
+// be a second copy of the truth, and the stale one is what people act on.
+
+/** The facts wizard.js reads. Only `interviewReady` and `skipped` are stored;
+ *  everything else is counted from evidence that was already there. */
+function wizardFacts() {
+  return {
+    evidence: (session?.evidence || []).length,
+    errors: (session?.console || []).filter((c) => c.level === "error").length
+          + (session?.network || []).length,
+    note: session?.userNote || "",
+    modelTurns: modelTurns(session?.chat),
+    ready: Boolean(session?.interviewReady),
+    skipped: session?.skipped || [],
+    drafts: drafts.length,
+    // `_sent` lives only in this page's memory, so a reload would read every
+    // ticket as unsent; the persisted status is what survives it.
+    sent: session?.status === "delivered" ? drafts.length : drafts.filter((d) => d._sent).length,
+  };
+}
+
+function renderWizard() {
+  const w = wizardState(wizardFacts());
+  const nav = $("wiz");
+  nav.replaceChildren();
+  const mark = { done: "✓", skipped: "⤳", todo: "•" };
+  for (const s of w.steps) {
+    const el = document.createElement("span");
+    el.className = `st ${s.state}${s.id === w.current ? " current" : ""}`;
+    el.textContent = `${mark[s.state]} ${s.label}`;
+    if (s.why) el.title = s.why;
+    nav.append(el);
+  }
+  const why = document.createElement("span");
+  why.className = "why";
+  // The skip sentence outranks the step hint: it describes what the button is
+  // about to DO, which matters more than what is merely still missing.
+  why.textContent = w.composeNote
+    || w.steps.find((s) => s.id === w.current)?.why
+    || "Sve je prošlo.";
+  nav.append(why);
+
+  $("compose").textContent = w.composeLabel;
+  $("skipInterview").classList.toggle("hidden", !w.skipsInterview);
+  return w;
+}
+
+/** Persist a declined step. Silent when it was already declined, so a double
+ *  click cannot write "pitanja,pitanja" onto the ticket. */
+async function recordSkip(stepId) {
+  const before = (session.skipped || []).length;
+  session.skipped = withSkip(session.skipped, stepId);
+  if (session.skipped.length !== before) {
+    await patchSession(sessionId, { skipped: session.skipped });
+  }
+}
+
 // -- chat ------------------------------------------------------------------
 
 function renderChat() {
@@ -165,6 +228,7 @@ async function pushChat(role, text) {
   session.chat = [...(session.chat || []), { role, text }];
   await patchSession(sessionId, { chat: session.chat });
   renderChat();
+  renderWizard();
 }
 
 async function runInterview() {
@@ -192,12 +256,17 @@ async function runInterview() {
     const sugg = (r.suggestions || []).filter((x) => x && x.what)
       .map((x) => `→ proveri: ${x.what}${x.where ? ` (${x.where})` : ""}${x.why ? ` — ${x.why}` : ""}`);
     if (sugg.length) text += `\n\n${sugg.join("\n")}`;
+    // Persisted, because the wizard reads it and a reload must not silently
+    // demote a finished interview back to "still asking".
+    session.interviewReady = Boolean(r.ready);
+    await patchSession(sessionId, { interviewReady: session.interviewReady });
     await pushChat("model", text);
     banner(r.ready ? "spremno za sklapanje" : "odgovori pa nastavi", r.ready ? "ok" : "muted");
   } catch (e) {
     banner(String(e?.message || e), "err");
   } finally {
     $("interview").disabled = false;
+    renderWizard();
   }
 }
 
@@ -413,6 +482,10 @@ function draftCard(d, i) {
 }
 
 async function runCompose() {
+  // Composing before the interview is finished IS the skip, however the button
+  // was reached. Recorded here rather than in the click handler so there is no
+  // second path that quietly does the same thing without leaving a trace.
+  if (wizardState(wizardFacts()).skipsInterview) await recordSkip("pitanja");
   banner("AI sklapa tiket…");
   $("compose").disabled = true;
   try {
@@ -443,6 +516,7 @@ async function runCompose() {
     banner(String(e?.message || e), "err");
   } finally {
     $("compose").disabled = false;
+    renderWizard();
   }
 }
 
@@ -496,6 +570,9 @@ async function sendDraft(i, btn) {
     kind: d.kind || "bug",
     splitIndex: i + 1,
     splitTotal: drafts.length,
+    // Which wizard steps the reporter declined. Without this the brain cannot
+    // tell a ticket that survived an interview from one that never had one.
+    skipped: session.skipped || [],
     edited: editedFields(composed[i], { ...d, kind: d.kind }, ["ticket_title", "ticket_description", "module", "category", "priority", "deadline", "kind"]),
   });
 
@@ -529,8 +606,10 @@ async function sendDraft(i, btn) {
     d._sent = true;
     if (drafts.every((x) => x._sent)) {
       await patchSession(sessionId, { status: "delivered", endedAt: Date.now() });
+      session.status = "delivered";
       banner("svi tiketi otvoreni", "ok");
     }
+    renderWizard();
   } catch (e) {
     step(d, String(e?.message || e), "err");
     // An ambiguous failure must NOT offer a one-click retry: the fix is to look
@@ -570,6 +649,14 @@ function sessionUrls() {
 
 $("interview").addEventListener("click", runInterview);
 $("compose").addEventListener("click", runCompose);
+
+// Declining without composing yet. Same recording path as runCompose -- there
+// is exactly one way a skip gets written down.
+$("skipInterview").addEventListener("click", async () => {
+  await recordSkip("pitanja");
+  renderWizard();
+  banner("pitanja preskočena — zabeleženo na tiketu", "warn");
+});
 $("openOptions").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 // Coming back from the Options tab must not require a reload to see the change.
@@ -646,6 +733,7 @@ async function init() {
     }
   }
   renderDrafts();
+  renderWizard();
 }
 
 init();

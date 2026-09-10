@@ -15,6 +15,27 @@
       background: var(--bg-raised);
     }
 
+    /* The wizard strip. Wraps rather than scrolls: a step pushed off the right
+       edge is a step nobody knows they skipped, which is the exact failure
+       this bar exists to prevent. */
+    nav.wiz {
+      flex: 0 0 auto;
+      display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-sunk);
+      font-size: 12px;
+    }
+    .wiz .st {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 2px 9px; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--text-dim);
+    }
+    .wiz .st.done { color: var(--ok); border-color: var(--ok); }
+    .wiz .st.current { color: var(--text); border-color: var(--border-strong); font-weight: 600; }
+    .wiz .st.skipped { color: var(--warn); border-color: var(--warn); }
+    .wiz .why { color: var(--text-dim); }
+
     .cols {
       flex: 1 1 auto;
       display: grid;
@@ -97,6 +118,10 @@
     <button class="ghost sm" id="openOptions" type="button" title="Podešavanja">⚙</button>
   </header>
 
+  <!-- Which step the session is on. It decides what the buttons below say;
+       see src/lib/wizard.js for why order had to become explicit. -->
+  <nav class="wiz" id="wiz" aria-label="Koraci"></nav>
+
   <div class="cols">
 
     <section class="col">
@@ -129,6 +154,11 @@
         <textarea id="answer" rows="2" placeholder="Odgovor…" style="flex:1"></textarea>
         <button id="sendAnswer" type="button">Pošalji</button>
         <button id="interview" class="primary" type="button">Ispitaj me</button>
+        <!-- Declining is allowed and is a DECISION: it is recorded on the
+             ticket (skip: in the tag) so the brain can one day compare
+             skipped sessions with finished ones. -->
+        <button id="skipInterview" class="ghost sm" type="button"
+                title="Preskoči pitanja — biće zabeleženo na tiketu">Preskoči</button>
       </div>
     </section>
 
